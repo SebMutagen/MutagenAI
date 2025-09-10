@@ -5,88 +5,139 @@ const PERPLEXITY_API_KEY = 'pplx-k6IsKKDgQoTnOQk6U24JnPYOQW6gQ7SsBcAKKjDmrl7aoOs
 const DIFFBOT_API_KEY = '159610ff529396e52d01b69ff6a896e2';
 const DEEPSEEK_API_KEY = 'sk-7ca0b43ee9234ee192fab611c38ef55b';
 
-// Perplexity API call function with automatic fallback
-async function searchWithPerplexity(problem) {
+// Perplexity API call function to find sources for specific examples
+async function searchWithPerplexity(examples) {
   try {
-    const response = await fetch('https://api.perplexity.ai/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`
-      },
-      body: JSON.stringify({
-        "model": "mistral-7b-instruct",
-        "messages": [
-          { 
-            "role": "system", 
-            "content": "You are a research assistant. Given a problem, find relevant URLs that might help solve it. You must return ONLY a valid JSON array of URLs, with no additional text, explanations, or formatting. Example: [\"https://example1.com\", \"https://example2.com\"]" 
-          },
-          { "role": "user", "content": problem }
-        ],
-        "max_tokens": 1024
-      })
-    });
+    const allUrls = [];
+    
+    // Search each industry example individually
+    if (examples.industry_examples && Array.isArray(examples.industry_examples)) {
+      for (let i = 0; i < examples.industry_examples.length; i++) {
+        const example = examples.industry_examples[i];
+        if (example && example.search_query) {
+          console.log(`Searching for industry example ${i + 1}: ${example.industry}`);
+          
+          const searchPrompt = `Find 2 detailed articles, case studies, or resources about this specific topic. Return ONLY a JSON array of URLs.
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Perplexity API error:', {
-        status: response.status,
-        response: errorText
-      });
-      throw new Error(`Perplexity API error: ${response.status} - ${errorText}`);
-    }
+Topic: ${example.search_query}
 
-    const data = await response.json();
-    console.log('Perplexity raw response:', data);
-    
-    // Try different ways to extract content from the response
-    let content = null;
-    
-    if (data.choices && data.choices[0]) {
-      const choice = data.choices[0];
-      if (choice.message && choice.message.content) {
-        content = choice.message.content;
-      } else if (choice.text) {
-        content = choice.text;
-      }
-    }
-    
-    if (!content) {
-      console.error('No content found in Perplexity response:', data);
-      throw new Error('No content received from Perplexity API');
-    }
-    
-    console.log('Extracted content:', content);
-    
-    // Try to parse as JSON, but handle different formats
-    try {
-      // First, try to parse directly
-      return JSON.parse(content);
-    } catch (parseError) {
-      console.log('Direct JSON parse failed, trying to extract URLs...');
-      
-      // Try to extract URLs from text if JSON parsing fails
-      const urlRegex = /(https?:\/\/[^\s"<>]+)/g;
-      const urls = content.match(urlRegex);
-      
-      if (urls && urls.length > 0) {
-        console.log('Extracted URLs from text:', urls);
-        return urls;
-      }
-      
-      // If no URLs found, try to clean the content and parse again
-      const cleanedContent = content.trim();
-      if (cleanedContent.startsWith('[') && cleanedContent.endsWith(']')) {
-        try {
-          return JSON.parse(cleanedContent);
-        } catch (secondParseError) {
-          console.error('Second JSON parse attempt failed:', secondParseError);
+Return format: ["https://example1.com/article", "https://example2.com/case-study"]`;
+
+          const response = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${PERPLEXITY_API_KEY}`
+            },
+            body: JSON.stringify({
+              "model": "sonar-pro",
+              "messages": [
+                { 
+                  "role": "user", 
+                  "content": searchPrompt 
+                }
+              ],
+              "max_tokens": 1024
+            })
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Perplexity API error for industry example ${i + 1}:`, {
+              status: response.status,
+              statusText: response.statusText,
+              errorText
+            });
+            continue; // Skip this example and continue with the next one
+          }
+
+          const data = await response.json();
+          const content = data.choices[0].message.content;
+          
+          try {
+            // Clean up any markdown code blocks
+            let cleanContent = content;
+            if (cleanContent.includes('```json')) {
+              cleanContent = cleanContent.replace(/```json\s*/, '').replace(/```\s*$/, '');
+            } else if (cleanContent.includes('```')) {
+              cleanContent = cleanContent.replace(/```\s*/, '').replace(/```\s*$/, '');
+            }
+            
+            const urls = JSON.parse(cleanContent);
+            if (Array.isArray(urls)) {
+              allUrls.push(...urls);
+              console.log(`Found ${urls.length} URLs for ${example.industry}`);
+            }
+          } catch (parseError) {
+            console.error(`Failed to parse URLs for industry example ${i + 1}:`, parseError);
+            console.log('Raw content:', content);
+          }
         }
       }
-      
-      console.error('Failed to extract URLs from content:', content);
-      throw new Error(`Could not extract URLs from Perplexity response. Raw content: ${content.substring(0, 200)}...`);
     }
+    
+    // Search random example
+    if (examples.random_example && examples.random_example.search_query) {
+      console.log(`Searching for random example: ${examples.random_example.concept}`);
+      
+      const searchPrompt = `Find 2 detailed articles, case studies, or resources about this specific topic. Return ONLY a JSON array of URLs.
+
+Topic: ${examples.random_example.search_query}
+
+Return format: ["https://example1.com/article", "https://example2.com/case-study"]`;
+
+      const response = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${PERPLEXITY_API_KEY}`
+        },
+        body: JSON.stringify({
+          "model": "sonar-pro",
+          "messages": [
+            { 
+              "role": "user", 
+              "content": searchPrompt 
+            }
+          ],
+          "max_tokens": 1024
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Perplexity API error for random example:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText
+        });
+      } else {
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        
+        try {
+          // Clean up any markdown code blocks
+          let cleanContent = content;
+          if (cleanContent.includes('```json')) {
+            cleanContent = cleanContent.replace(/```json\s*/, '').replace(/```\s*$/, '');
+          } else if (cleanContent.includes('```')) {
+            cleanContent = cleanContent.replace(/```\s*/, '').replace(/```\s*$/, '');
+          }
+          
+          const urls = JSON.parse(cleanContent);
+          if (Array.isArray(urls)) {
+            allUrls.push(...urls);
+            console.log(`Found ${urls.length} URLs for random example`);
+          }
+        } catch (parseError) {
+          console.error('Failed to parse URLs for random example:', parseError);
+          console.log('Raw content:', content);
+        }
+      }
+    }
+    
+    console.log(`Total URLs found: ${allUrls.length}`);
+    return allUrls;
   } catch (error) {
     console.error('Perplexity API call failed:', error);
     
@@ -100,32 +151,78 @@ async function searchWithPerplexity(problem) {
   }
 }
 
-// Diffbot API call function
-async function scrapeWithDiffbot(url) {
+// Diffbot API call function with timeout
+async function scrapeWithDiffbot(url, timeoutMs = 10000) {
+  try {
+    // Create an AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    const apiUrl = `${DIFFBOT_API}?token=${DIFFBOT_API_KEY}&url=${encodeURIComponent(url)}`;
+    const response = await fetch(apiUrl, {
+      signal: controller.signal
+    });
+    
+    // Clear the timeout since we got a response
+    clearTimeout(timeoutId);
 
+    if (!response.ok) {
+      throw new Error(`Diffbot API error: ${response.status}`);
+    }
 
-  const apiUrl = `${DIFFBOT_API}?token=${DIFFBOT_API_KEY}&url=${encodeURIComponent(url)}`;
-  const response = await fetch(apiUrl);
+    const data = await response.json();
+    if (!data.objects || !data.objects.length) {
+      throw new Error('No content found in URL');
+    }
 
-  if (!response.ok) {
-    throw new Error(`Diffbot API error: ${response.status}`);
+    return {
+      title: data.objects[0].title || '',
+      text: data.objects[0].text || '',
+      html: data.objects[0].html || ''
+    };
+  } catch (error) {
+    // Clear timeout in case of error
+    if (error.name === 'AbortError') {
+      console.warn(`Diffbot scraping timed out for ${url} after ${timeoutMs}ms`);
+      throw new Error(`Timeout: Site took too long to respond (${timeoutMs}ms)`);
+    }
+    console.error('Diffbot scraping failed:', error);
+    throw error;
   }
-
-  const data = await response.json();
-  if (!data.objects || !data.objects.length) {
-    throw new Error('No content found in URL');
-  }
-
-  return {
-    title: data.objects[0].title || '',
-    text: data.objects[0].text || '',
-    html: data.objects[0].html || ''
-  };
 }
 
-// Deepseek API call function
-async function generateWithDeepseek(content, problem) {
+// DeepSeek function for root cause analysis and example generation
+async function analyzeProblemAndGenerateExamples(problem) {
+  const analysisPrompt = `You are an IDEO consultant analyzing a problem. Your job is to:
 
+1. Identify the ROOT CAUSE of the problem (the underlying issue, not just symptoms)
+2. Suggest 2 specific examples from OTHER INDUSTRIES that solve similar root causes
+3. Suggest 1 completely RANDOM example that doesn't directly solve the problem but might spark unexpected insights
+
+Problem: "${problem}"
+
+IMPORTANT: You MUST return ONLY valid JSON in this exact format. Do not include any other text, explanations, or formatting:
+
+{
+  "root_cause": "Brief description of the underlying issue",
+  "industry_examples": [
+    {
+      "industry": "Industry name",
+      "example": "Specific example of how they solve this root cause",
+      "search_query": "Search query to find detailed articles about this example"
+    },
+    {
+      "industry": "Industry name", 
+      "example": "Specific example of how they solve this root cause",
+      "search_query": "Search query to find detailed articles about this example"
+    }
+  ],
+  "random_example": {
+    "concept": "Random concept/phenomenon",
+    "description": "Why this might be unexpectedly helpful",
+    "search_query": "Search query to find articles about this concept"
+  }
+}`;
 
   const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
     method: 'POST',
@@ -136,9 +233,12 @@ async function generateWithDeepseek(content, problem) {
     body: JSON.stringify({
       model: 'deepseek-chat',
       messages: [
-        { role: 'system', content: 'You are a creative problem solver. Given some content and a problem, generate innovative solutions.' },
-        { role: 'user', content: `Content: ${content}\n\nProblem: ${problem}\n\nGenerate 2-3 creative solutions based on the insights from the content.` }
-      ]
+        { role: 'user', content: analysisPrompt }
+      ],
+      max_tokens: 800,
+      response_format: {
+        type: 'json_object'
+      }
     })
   });
 
@@ -147,44 +247,438 @@ async function generateWithDeepseek(content, problem) {
   }
 
   const data = await response.json();
-  return data.choices[0].message.content;
+  let content = data.choices[0].message.content;
+  
+  // Clean up any markdown code blocks that might still appear
+  if (content.includes('```json')) {
+    content = content.replace(/```json\s*/, '').replace(/```\s*$/, '');
+  } else if (content.includes('```')) {
+    content = content.replace(/```\s*/, '').replace(/```\s*$/, '');
+  }
+  
+  try {
+    const analysis = JSON.parse(content);
+    
+    // Validate the structure
+    if (!analysis.root_cause) {
+      throw new Error('Missing root_cause in DeepSeek response');
+    }
+    
+    if (!analysis.industry_examples || !Array.isArray(analysis.industry_examples) || analysis.industry_examples.length < 2) {
+      throw new Error('Missing or invalid industry_examples in DeepSeek response');
+    }
+    
+    if (!analysis.random_example || !analysis.random_example.concept) {
+      throw new Error('Missing or invalid random_example in DeepSeek response');
+    }
+    
+    return analysis;
+  } catch (error) {
+    console.error('Failed to parse DeepSeek analysis:', error);
+    console.log('Raw content:', content);
+    throw error;
+  }
+}
+
+// Deepseek API call function for generating prompts from content
+async function generateWithDeepseek(content, problem) {
+  console.log(`Generating prompt for content length: ${content.length} characters`);
+  
+  // Truncate content if it's too long to avoid token limits
+  const maxContentLength = 2000; // Reduced limit for better reliability
+  const truncatedContent = content.length > maxContentLength 
+    ? content.substring(0, maxContentLength) + '...' 
+    : content;
+  
+  console.log(`Using content length: ${truncatedContent.length} characters`);
+  
+  // Simplified and more focused prompt
+  const userPrompt = `Create 1-2 creative prompts inspired by this article that could help solve: "${problem}"
+
+Article: ${truncatedContent}
+
+Format each prompt as a "What if..." or "How might we..." question that sparks new thinking. Keep each prompt to 1-2 sentences and make it actionable.`;
+
+  const requestBody = {
+    model: 'deepseek-chat',
+    messages: [
+      { 
+        role: 'system', 
+        content: 'You are a creative brainstorming assistant. Generate inspiring prompts that help people think differently about problems. Always create actionable, thought-provoking questions.' 
+      },
+      { 
+        role: 'user', 
+        content: userPrompt 
+      }
+    ],
+    max_tokens: 300,
+    temperature: 0.7 // Add some creativity
+  };
+  
+  console.log('DeepSeek request body:', JSON.stringify(requestBody, null, 2));
+  
+  const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`DeepSeek API error: ${response.status} - ${errorText}`);
+    throw new Error(`Deepseek API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  console.log('DeepSeek response for prompt generation:', data);
+  
+  if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+    console.error('Unexpected DeepSeek response structure:', data);
+    throw new Error('Unexpected response structure from DeepSeek API');
+  }
+  
+  const result = data.choices[0].message.content;
+  console.log(`Generated prompt: "${result}"`);
+  console.log(`Generated prompt length: ${result.length} characters`);
+  
+  return result;
 }
 
 // Main flow function
 async function processUserProblem(problem) {
-  // Step 1: Search with Perplexity
-  const urls = await searchWithPerplexity(problem);
+  const searchResults = document.getElementById('searchResults');
+  const generatedPrompts = document.getElementById('generatedPrompts');
   
-  // Step 2: Scrape URLs with Diffbot
-  const scrapedContent = [];
-  for (const url of urls) {
-    try {
-      const content = await scrapeWithDiffbot(url);
-      scrapedContent.push({ url, ...content });
-    } catch (e) {
-      console.error(`Failed to scrape ${url}:`, e);
+  try {
+    // Step 1: DeepSeek - Analyze problem and generate examples
+    if (searchResults) {
+      searchResults.innerHTML = `
+        <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px;">
+          <strong>Step 1/4: Analyzing problem...</strong><br>
+          Identifying root cause and generating examples from other industries
+        </div>
+      `;
     }
-  }
-
-  // Step 3: Generate prompts with Deepseek
-  const prompts = [];
-  for (const content of scrapedContent) {
-    try {
-      const prompt = await generateWithDeepseek(content.text, problem);
-      prompts.push({
-        prompt,
-        url: content.url,
-        title: content.title
-      });
-    } catch (e) {
-      console.error(`Failed to generate prompt for ${content.url}:`, e);
+    
+    const analysis = await analyzeProblemAndGenerateExamples(problem);
+    console.log('Problem analysis:', analysis);
+    
+    // Display analysis results
+    if (searchResults) {
+      const industryExamplesHtml = analysis.industry_examples.map((ex, i) => `${i + 1}. <strong>${ex.industry}:</strong> ${ex.example}`).join('<br>');
+      
+      searchResults.innerHTML = `
+        <div style="padding: 15px; background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px;">
+          <strong>Problem Analysis Complete!</strong><br><br>
+          <strong>Root Cause:</strong> ${analysis.root_cause}<br><br>
+          <strong>Industry Examples:</strong><br>
+          ${industryExamplesHtml}<br><br>
+          <strong>Random Inspiration:</strong><br>
+          <strong>${analysis.random_example.concept}:</strong> ${analysis.random_example.description}
+        </div>
+      `;
     }
-  }
+    
+    // Step 2: Perplexity - Find sources for examples
+    if (searchResults) {
+      searchResults.innerHTML += `
+        <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px; margin-top: 10px;">
+          <strong>Step 2/4: Finding sources...</strong><br>
+          Searching for detailed articles about the examples
+        </div>
+      `;
+    }
+    
+    const urls = await searchWithPerplexity(analysis);
+    console.log('Found URLs:', urls);
+    
+    // Step 3: DiffBot - Scrape content from URLs with replacement for failed ones
+    if (searchResults) {
+      searchResults.innerHTML += `
+        <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px; margin-top: 10px;">
+          <strong>Step 3/4: Scraping content...</strong><br>
+          Extracting detailed information from articles
+        </div>
+      `;
+    }
+    
+    const scrapedContent = [];
+    const failedUrls = [];
+    const targetSources = 6; // We want 6 sources total (2 per example)
+    
+    // First pass: try to scrape all URLs
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      try {
+        // Show progress
+        if (searchResults) {
+          const progressDiv = searchResults.querySelector('div:last-child');
+          if (progressDiv) {
+            progressDiv.innerHTML = `
+              <strong>Step 3/4: Scraping content...</strong><br>
+              Processing ${i + 1} of ${urls.length}: <a href="${url}" target="_blank">${url}</a>
+            `;
+          }
+        }
+        
+        const content = await scrapeWithDiffbot(url, 8000); // 8 second timeout
+        scrapedContent.push({ url, ...content });
+        console.log(`Successfully scraped: ${url}`);
+      } catch (e) {
+        console.error(`Failed to scrape ${url}:`, e);
+        failedUrls.push(url);
+        
+        // Show timeout or error message
+        if (searchResults && e.message.includes('Timeout')) {
+          const progressDiv = searchResults.querySelector('div:last-child');
+          if (progressDiv) {
+            progressDiv.innerHTML = `
+              <strong>Step 3/4: Scraping content...</strong><br>
+              Skipped ${url} (timeout) - will find replacement...<br>
+              Processed ${i + 1} of ${urls.length}
+            `;
+          }
+        }
+      }
+    }
+    
+    // Second pass: find replacement sources for failed URLs
+    if (failedUrls.length > 0 && scrapedContent.length < targetSources) {
+      const neededSources = targetSources - scrapedContent.length;
+      console.log(`Finding ${neededSources} replacement sources for failed URLs`);
+      
+      if (searchResults) {
+        const progressDiv = searchResults.querySelector('div:last-child');
+        if (progressDiv) {
+          progressDiv.innerHTML = `
+            <strong>Step 3/4: Finding replacement sources...</strong><br>
+            ${scrapedContent.length} sources found, need ${neededSources} more<br>
+            Searching for alternatives...
+          `;
+        }
+      }
+      
+      try {
+        // Get replacement URLs using the same analysis
+        const replacementUrls = await searchWithPerplexity(analysis);
+        console.log(`Found ${replacementUrls.length} replacement URLs`);
+        
+        // Try to scrape replacement URLs
+        for (let i = 0; i < Math.min(replacementUrls.length, neededSources * 2); i++) {
+          const url = replacementUrls[i];
+          
+          // Skip if we already have this URL
+          if (scrapedContent.some(content => content.url === url)) {
+            continue;
+          }
+          
+          try {
+            if (searchResults) {
+              const progressDiv = searchResults.querySelector('div:last-child');
+              if (progressDiv) {
+                progressDiv.innerHTML = `
+                  <strong>Step 3/4: Trying replacement sources...</strong><br>
+                  Attempting ${url}<br>
+                  Found ${scrapedContent.length}/${targetSources} sources
+                `;
+              }
+            }
+            
+            const content = await scrapeWithDiffbot(url, 8000);
+            scrapedContent.push({ url, ...content });
+            console.log(`Successfully scraped replacement: ${url}`);
+            
+            // Stop if we have enough sources
+            if (scrapedContent.length >= targetSources) {
+              break;
+            }
+          } catch (e) {
+            console.error(`Failed to scrape replacement ${url}:`, e);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to find replacement sources:', e);
+      }
+    }
 
-  return {
-    urls: scrapedContent.map(c => ({ url: c.url, title: c.title })),
-    prompts
-  };
+    // Show final scraping results
+    if (searchResults) {
+      const successCount = scrapedContent.length;
+      const totalCount = urls.length;
+      const skippedCount = totalCount - successCount;
+      const replacementCount = successCount - totalCount;
+      
+      searchResults.innerHTML += `
+        <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; margin-top: 10px;">
+          <strong>Scraping Complete!</strong><br>
+          Successfully scraped: ${successCount} sources<br>
+          ${skippedCount > 0 ? `Original URLs skipped: ${skippedCount} (timeouts/errors)` : ''}<br>
+          ${replacementCount > 0 ? `Replacement sources found: ${replacementCount}` : ''}<br>
+          Target: 6 sources (2 per inspiration example)
+        </div>
+      `;
+    }
+
+    // Step 4: DeepSeek - Generate inspiration prompts
+    if (generatedPrompts) {
+      generatedPrompts.innerHTML = `
+        <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px;">
+          <strong>Step 4/4: Generating inspiration prompts...</strong><br>
+          Converting article insights into creative prompts
+        </div>
+      `;
+    }
+    
+    const prompts = [];
+    const failedPrompts = [];
+    
+    for (let i = 0; i < scrapedContent.length; i++) {
+      const content = scrapedContent[i];
+      
+      try {
+        // Show progress
+        if (generatedPrompts) {
+          const progressDiv = generatedPrompts.querySelector('div:last-child');
+          if (progressDiv) {
+            progressDiv.innerHTML = `
+              <strong>Step 4/4: Generating inspiration prompts...</strong><br>
+              Processing ${i + 1} of ${scrapedContent.length}: <a href="${content.url}" target="_blank">${content.title}</a><br>
+              Generated ${prompts.length} prompts so far
+            `;
+          }
+        }
+        
+        console.log(`Generating prompt for source ${i + 1}/${scrapedContent.length}: ${content.url}`);
+        console.log(`Content preview: ${content.text.substring(0, 200)}...`);
+        
+        // Try to generate prompt with retry logic
+        let prompt = null;
+        let attempts = 0;
+        const maxAttempts = 2;
+        
+        while (attempts < maxAttempts && !prompt) {
+          attempts++;
+          console.log(`Attempt ${attempts}/${maxAttempts} for ${content.url}`);
+          
+          try {
+            prompt = await generateWithDeepseek(content.text, problem);
+            console.log(`Attempt ${attempts} result:`, prompt);
+            
+            if (prompt && prompt.trim().length > 10) { // More lenient check
+              break;
+            } else {
+              console.warn(`Attempt ${attempts} produced empty/too short prompt:`, prompt);
+              prompt = null;
+            }
+          } catch (e) {
+            console.error(`Attempt ${attempts} failed:`, e);
+            if (attempts === maxAttempts) {
+              throw e; // Re-throw on final attempt
+            }
+          }
+        }
+        
+        if (prompt && prompt.trim().length > 10) {
+          prompts.push({
+            prompt,
+            url: content.url,
+            title: content.title
+          });
+          console.log(`Successfully generated prompt for: ${content.url}`);
+        } else {
+          console.warn(`Failed to generate valid prompt after ${maxAttempts} attempts for: ${content.url}`);
+          failedPrompts.push({ url: content.url, title: content.title, reason: `Failed after ${maxAttempts} attempts` });
+        }
+      } catch (e) {
+        console.error(`Failed to generate prompt for ${content.url}:`, e);
+        failedPrompts.push({ url: content.url, title: content.title, reason: e.message });
+      }
+    }
+    
+    console.log(`Prompt generation complete: ${prompts.length} successful, ${failedPrompts.length} failed`);
+    if (failedPrompts.length > 0) {
+      console.log('Failed prompts:', failedPrompts);
+    }
+
+    // Display final results
+    if (generatedPrompts) {
+      generatedPrompts.innerHTML = `
+        <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
+          <strong>Complete!</strong><br>
+          Generated ${prompts.length} inspiration prompts from ${scrapedContent.length} articles<br>
+          ${failedPrompts.length > 0 ? `<span style="color: #856404;">Failed to generate prompts: ${failedPrompts.length} sources</span>` : ''}
+        </div>
+        ${prompts.map(p => `
+          <div style="padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; margin-top: 10px;">
+            <strong>Source:</strong> <a href="${p.url}" target="_blank">${p.title}</a><br><br>
+            <strong>Inspiration Prompt:</strong><br>
+            ${p.prompt}
+          </div>
+        `).join('')}
+        ${failedPrompts.length > 0 ? `
+          <div style="padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; margin-top: 10px;">
+            <strong>Sources that failed to generate prompts:</strong><br>
+            ${failedPrompts.map(fp => `
+              • <a href="${fp.url}" target="_blank">${fp.title}</a> - ${fp.reason}
+            `).join('<br>')}
+          </div>
+        ` : ''}
+      `;
+    }
+
+    return {
+      analysis,
+      urls,
+      scrapedContent,
+      prompts
+    };
+    
+  } catch (error) {
+    console.error('Process failed:', error);
+    
+    let errorMessage = error.message;
+    let errorDetails = '';
+    
+    if (error.message.includes('CORS_BLOCKED')) {
+      errorDetails = `
+        <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">
+          <strong>Network Restriction Detected:</strong><br>
+          The Perplexity API is blocked due to network restrictions (common in Hong Kong).<br><br>
+          <strong>Solution:</strong><br>
+          • Use the "Manual Sources" section below<br>
+          • Go to <a href="https://www.perplexity.ai" target="_blank" style="color: #1976d2;">perplexity.ai</a> in a new tab<br>
+          • Copy the sources from Perplexity results<br>
+          • Paste them in the Manual Sources field and click "Process Manual Sources"
+        </div>
+      `;
+    } else if (error.message.includes('Perplexity API error:')) {
+      errorDetails = `
+        <div style="margin-top: 10px; padding: 10px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
+          <strong>API Error:</strong><br>
+          • Check if your Perplexity API key is valid<br>
+          • Verify your internet connection<br>
+          • Try refreshing the page
+        </div>
+      `;
+    }
+    
+    if (searchResults) {
+      searchResults.innerHTML = `
+        <div style="color: red; padding: 15px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
+          <strong>Error: ${errorMessage}</strong>
+          ${errorDetails}
+        </div>
+      `;
+    }
+    if (generatedPrompts) {
+      generatedPrompts.innerHTML = '';
+    }
+    
+    throw error;
+  }
 }
 
 let urlInput, processBtn, promptSection, historyPanel, historyGroups, 
@@ -436,10 +930,20 @@ async function getSystemPrompt() {
     prompt = await loadSystemPromptFromFile();
   }
   
-  // If still no prompt, use default
+  // If still no prompt, use IDEO-inspired default
   if (!prompt) {
-    prompt = 'You are a creative assistant that turns article sections into creative prompts. Always cite the quote or section that inspired each prompt.';
-    console.log('Using default system prompt');
+    prompt = `You are an IDEO consultant who runs brainstorming sessions. Your secret technique is to find how other industries solve similar problems and use random concepts to spark lateral thinking.
+
+When you receive article content, transform it into creative prompts that:
+1. Draw inspiration from how different industries solve similar problems
+2. Use lateral thinking and unexpected connections
+3. Focus on the core challenge, not the specific domain
+4. Always cite the specific quote or section that inspired each prompt
+5. Make prompts actionable and specific (1-2 sentences)
+6. Spark new ideas through cross-industry inspiration
+
+Each prompt should be concise, actionable, and help spark breakthrough solutions.`;
+    console.log('Using IDEO-inspired system prompt');
   }
   
   return prompt;
