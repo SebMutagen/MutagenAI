@@ -9,19 +9,29 @@ const DEEPSEEK_API_KEY = 'sk-7ca0b43ee9234ee192fab611c38ef55b';
 async function searchWithPerplexity(examples) {
   try {
     const allUrls = [];
+    const searchPrompts = [];
     
-    // Search each industry example individually
-    if (examples.industry_examples && Array.isArray(examples.industry_examples)) {
-      for (let i = 0; i < examples.industry_examples.length; i++) {
-        const example = examples.industry_examples[i];
-        if (example && example.search_query) {
-          console.log(`Searching for industry example ${i + 1}: ${example.industry}`);
+    // Search each inspiration source individually
+    if (examples.inspiration_sources && Array.isArray(examples.inspiration_sources)) {
+      console.log(`Found ${examples.inspiration_sources.length} inspiration sources to search`);
+      for (let i = 0; i < examples.inspiration_sources.length; i++) {
+        const source = examples.inspiration_sources[i];
+        if (source && source.search_query) {
+          console.log(`Searching for inspiration source ${i + 1}: ${source.source_type} - ${source.title || source.industry || source.persona}`);
           
           const searchPrompt = `Find 2 detailed articles, case studies, or resources about this specific topic. Return ONLY a JSON array of URLs.
 
-Topic: ${example.search_query}
+Topic: ${source.search_query}
 
 Return format: ["https://example1.com/article", "https://example2.com/case-study"]`;
+          
+          // Store the search prompt
+          searchPrompts.push({
+            type: source.source_type,
+            title: source.title || source.industry || source.persona,
+            searchQuery: source.search_query,
+            prompt: searchPrompt
+          });
 
           const response = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
@@ -76,68 +86,11 @@ Return format: ["https://example1.com/article", "https://example2.com/case-study
       }
     }
     
-    // Search random example
-    if (examples.random_example && examples.random_example.search_query) {
-      console.log(`Searching for random example: ${examples.random_example.concept}`);
-      
-      const searchPrompt = `Find 2 detailed articles, case studies, or resources about this specific topic. Return ONLY a JSON array of URLs.
-
-Topic: ${examples.random_example.search_query}
-
-Return format: ["https://example1.com/article", "https://example2.com/case-study"]`;
-
-      const response = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${PERPLEXITY_API_KEY}`
-        },
-        body: JSON.stringify({
-          "model": "sonar-pro",
-          "messages": [
-            { 
-              "role": "user", 
-              "content": searchPrompt 
-            }
-          ],
-          "max_tokens": 1024
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Perplexity API error for random example:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorText
-        });
-      } else {
-        const data = await response.json();
-        const content = data.choices[0].message.content;
-        
-        try {
-          // Clean up any markdown code blocks
-          let cleanContent = content;
-          if (cleanContent.includes('```json')) {
-            cleanContent = cleanContent.replace(/```json\s*/, '').replace(/```\s*$/, '');
-          } else if (cleanContent.includes('```')) {
-            cleanContent = cleanContent.replace(/```\s*/, '').replace(/```\s*$/, '');
-          }
-          
-          const urls = JSON.parse(cleanContent);
-          if (Array.isArray(urls)) {
-            allUrls.push(...urls);
-            console.log(`Found ${urls.length} URLs for random example`);
-          }
-        } catch (parseError) {
-          console.error('Failed to parse URLs for random example:', parseError);
-          console.log('Raw content:', content);
-        }
-      }
-    }
-    
     console.log(`Total URLs found: ${allUrls.length}`);
-    return allUrls;
+    return {
+      urls: allUrls,
+      searchPrompts: searchPrompts
+    };
   } catch (error) {
     console.error('Perplexity API call failed:', error);
     
@@ -191,37 +144,139 @@ async function scrapeWithDiffbot(url, timeoutMs = 10000) {
   }
 }
 
+// DeepSeek fallback scraping function
+async function scrapeWithDeepseek(url) {
+  try {
+    console.log(`Attempting DeepSeek fallback scraping for: ${url}`);
+    
+    const prompt = `Please analyze the content of this website and provide a comprehensive summary. Focus on the main topics, key insights, and actionable information that could be useful for creative problem-solving.
+
+Website URL: ${url}
+
+Please provide:
+1. A clear title for the content
+2. A detailed summary of the main points and insights
+3. Any specific examples, case studies, or methodologies mentioned
+4. Key takeaways that could inspire creative solutions
+
+Format your response as a structured summary that captures the essence of the content.`;
+
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { 
+            role: 'system', 
+            content: 'You are a web content analyzer. When given a website URL, analyze the content and provide a comprehensive summary focusing on insights that could inspire creative problem-solving. Extract key information, examples, and actionable insights.' 
+          },
+          { 
+            role: 'user', 
+            content: prompt 
+          }
+        ],
+        max_tokens: 1000,
+        temperature: 0.7,
+        presence_penalty: 0.5
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`DeepSeek API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    
+    // Extract title from the first line or use URL as fallback
+    const lines = content.split('\n');
+    const title = lines[0].replace(/^#+\s*/, '').trim() || new URL(url).hostname;
+    
+    return {
+      title: title,
+      text: content,
+      html: content // Use the same content for both text and html
+    };
+  } catch (error) {
+    console.error('DeepSeek fallback scraping failed:', error);
+    throw error;
+  }
+}
+
 // DeepSeek function for root cause analysis and example generation
 async function analyzeProblemAndGenerateExamples(problem) {
+  const previousSearchContext = getPreviousSearchContext();
+  
   const analysisPrompt = `You are an IDEO consultant analyzing a problem. Your job is to:
 
-1. Identify the ROOT CAUSE of the problem (the underlying issue, not just symptoms)
-2. Suggest 2 specific examples from OTHER INDUSTRIES that solve similar root causes
-3. Suggest 1 completely RANDOM example that doesn't directly solve the problem but might spark unexpected insights
+1. First, assess if the problem statement is VAGUE or SPECIFIC
+2. ALWAYS explore 3-4 different possible root causes and interpretations of the problem, regardless of vagueness level
+3. Each interpretation should offer a different lens through which to understand and solve the problem
+4. Generate EXACTLY 3 sources of inspiration using this exact framework (you MUST include all 3):
+
+   SOURCE 1 - FIELD EXPERT: You are an expert in the field where this problem exists. Take inspiration from new or emerging topics, trends, technologies, or approaches in this field and turn those into prompts that could solve the problem.
+
+   SOURCE 2 - CROSS-INDUSTRY ROOT CAUSE: Find something that targets the same root cause of this problem, but from a completely different industry/context. Look for how other industries solve similar underlying issues.
+
+   SOURCE 3 - RANDOM PERSONA: Pick a random persona from a completely different industry than where the problem exists. Then find inspiration based on that persona's industry, their needs, challenges, and how their industry operates.
+
+   CRITICAL: You must generate all 3 sources. Do not skip any of them.
 
 Problem: "${problem}"
+
+${previousSearchContext ? `IMPORTANT: Avoid these previously searched topics and prompt concepts to find fresh, different examples and generate unique prompts: ${previousSearchContext}
+
+Make sure your inspiration sources are completely different from previous searches, and that any future prompts generated from these examples will explore new angles and concepts.` : ''}
 
 IMPORTANT: You MUST return ONLY valid JSON in this exact format. Do not include any other text, explanations, or formatting:
 
 {
-  "root_cause": "Brief description of the underlying issue",
-  "industry_examples": [
+  "problem_assessment": "VAGUE or SPECIFIC",
+  "problem_interpretations": [
     {
-      "industry": "Industry name",
-      "example": "Specific example of how they solve this root cause",
-      "search_query": "Search query to find detailed articles about this example"
+      "root_cause": "Brief description of this interpretation of the underlying issue",
+      "reasoning": "Why this might be a valid interpretation of the problem",
+      "perspective": "The lens or angle this interpretation takes (e.g., 'Technical', 'Social', 'Economic', 'Behavioral', 'Systemic')"
     },
     {
-      "industry": "Industry name", 
-      "example": "Specific example of how they solve this root cause",
-      "search_query": "Search query to find detailed articles about this example"
+      "root_cause": "Brief description of this interpretation of the underlying issue",
+      "reasoning": "Why this might be a valid interpretation of the problem",
+      "perspective": "The lens or angle this interpretation takes (e.g., 'Technical', 'Social', 'Economic', 'Behavioral', 'Systemic')"
+    },
+    {
+      "root_cause": "Brief description of this interpretation of the underlying issue",
+      "reasoning": "Why this might be a valid interpretation of the problem",
+      "perspective": "The lens or angle this interpretation takes (e.g., 'Technical', 'Social', 'Economic', 'Behavioral', 'Systemic')"
     }
   ],
-  "random_example": {
-    "concept": "Random concept/phenomenon",
-    "description": "Why this might be unexpectedly helpful",
-    "search_query": "Search query to find articles about this concept"
-  }
+  "inspiration_sources": [
+    {
+      "source_type": "FIELD_EXPERT",
+      "title": "Brief title of the emerging topic/trend",
+      "description": "Description of the emerging topic, trend, technology, or approach in the field",
+      "search_query": "Search query to find detailed articles about this emerging topic",
+      "problem_interpretation": "Which problem interpretation this addresses (0-based index)"
+    },
+    {
+      "source_type": "CROSS_INDUSTRY_ROOT_CAUSE",
+      "industry": "Industry name",
+      "description": "How this industry solves the same root cause",
+      "search_query": "Search query to find detailed articles about this cross-industry solution",
+      "problem_interpretation": "Which problem interpretation this addresses (0-based index)"
+    },
+    {
+      "source_type": "RANDOM_PERSONA",
+      "persona": "Random persona description (e.g., 'A 45-year-old marine biologist')",
+      "industry": "Persona's industry (e.g., 'Marine Biology')",
+      "description": "How this persona's industry operates and what insights it offers",
+      "search_query": "Search query to find detailed articles about this persona's industry",
+      "problem_interpretation": "Which problem interpretation this addresses (0-based index)"
+    }
+  ]
 }`;
 
   const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -236,6 +291,8 @@ IMPORTANT: You MUST return ONLY valid JSON in this exact format. Do not include 
         { role: 'user', content: analysisPrompt }
       ],
       max_tokens: 800,
+      temperature: 1.5,
+      presence_penalty: 1,
       response_format: {
         type: 'json_object'
       }
@@ -260,16 +317,31 @@ IMPORTANT: You MUST return ONLY valid JSON in this exact format. Do not include 
     const analysis = JSON.parse(content);
     
     // Validate the structure
-    if (!analysis.root_cause) {
-      throw new Error('Missing root_cause in DeepSeek response');
+    if (!analysis.problem_assessment) {
+      throw new Error('Missing problem_assessment in DeepSeek response');
     }
     
-    if (!analysis.industry_examples || !Array.isArray(analysis.industry_examples) || analysis.industry_examples.length < 2) {
-      throw new Error('Missing or invalid industry_examples in DeepSeek response');
+    if (!analysis.problem_interpretations || !Array.isArray(analysis.problem_interpretations) || analysis.problem_interpretations.length < 3) {
+      throw new Error('Missing or invalid problem_interpretations in DeepSeek response - must have at least 3 interpretations');
     }
     
-    if (!analysis.random_example || !analysis.random_example.concept) {
-      throw new Error('Missing or invalid random_example in DeepSeek response');
+    if (!analysis.inspiration_sources || !Array.isArray(analysis.inspiration_sources) || analysis.inspiration_sources.length !== 3) {
+      throw new Error('Missing or invalid inspiration_sources in DeepSeek response - must have exactly 3 sources');
+    }
+    
+    // Validate each inspiration source has required fields
+    analysis.inspiration_sources.forEach((source, index) => {
+      if (!source.source_type || !source.description || !source.search_query) {
+        throw new Error(`Missing required fields in inspiration source ${index + 1}`);
+      }
+    });
+    
+    // Validate that all three source types are present
+    const sourceTypes = analysis.inspiration_sources.map(s => s.source_type);
+    const requiredTypes = ['FIELD_EXPERT', 'CROSS_INDUSTRY_ROOT_CAUSE', 'RANDOM_PERSONA'];
+    const missingTypes = requiredTypes.filter(type => !sourceTypes.includes(type));
+    if (missingTypes.length > 0) {
+      throw new Error(`Missing required source types: ${missingTypes.join(', ')}`);
     }
     
     return analysis;
@@ -312,7 +384,8 @@ Format each prompt as a "What if..." or "How might we..." question that sparks n
       }
     ],
     max_tokens: 300,
-    temperature: 0.7 // Add some creativity
+    temperature: 1.5, // High creativity for diverse prompts
+    presence_penalty: 1
   };
   
   console.log('DeepSeek request body:', JSON.stringify(requestBody, null, 2));
@@ -354,8 +427,8 @@ async function processUserProblem(problem) {
   
   try {
     // Step 1: DeepSeek - Analyze problem and generate examples
-    if (searchResults) {
-      searchResults.innerHTML = `
+    if (searchProgress) {
+      searchProgress.innerHTML = `
         <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px;">
           <strong>Step 1/4: Analyzing problem...</strong><br>
           Identifying root cause and generating examples from other industries
@@ -365,26 +438,68 @@ async function processUserProblem(problem) {
     
     const analysis = await analyzeProblemAndGenerateExamples(problem);
     console.log('Problem analysis:', analysis);
+    console.log('Inspiration sources found:', analysis.inspiration_sources?.length || 0);
+    if (analysis.inspiration_sources) {
+      analysis.inspiration_sources.forEach((source, i) => {
+        console.log(`Source ${i + 1}: ${source.source_type} - ${source.title || source.industry || source.persona}`);
+        console.log(`Source ${i + 1} details:`, source);
+      });
+    }
+    
+    // Save search history (prompts will be added after generation)
+    const searchData = {
+      problem: problem,
+      analysis: analysis,
+      prompts: [], // Will be populated after prompt generation
+      timestamp: Date.now()
+    };
+    saveSearchHistory(searchData);
     
     // Display analysis results
     if (searchResults) {
-      const industryExamplesHtml = analysis.industry_examples.map((ex, i) => `${i + 1}. <strong>${ex.industry}:</strong> ${ex.example}`).join('<br>');
+      const problemInterpretationsHtml = analysis.problem_interpretations.map((interpretation, i) => `
+        <div style="margin-bottom: 10px; padding: 8px; background: #f8f9fa; border-left: 3px solid #007bff; border-radius: 3px;">
+          <strong>Interpretation ${i + 1} (${interpretation.perspective || 'Analysis'}):</strong> ${interpretation.root_cause}<br>
+          <em style="color: #666; font-size: 0.9em;">${interpretation.reasoning}</em>
+        </div>
+      `).join('');
+      
+      const inspirationSourcesHtml = analysis.inspiration_sources.map((source, i) => {
+        const interpretationIndex = source.problem_interpretation !== undefined ? source.problem_interpretation + 1 : 'N/A';
+        const sourceTypeLabels = {
+          'FIELD_EXPERT': 'Field Expert',
+          'CROSS_INDUSTRY_ROOT_CAUSE': 'Cross-Industry Root Cause',
+          'RANDOM_PERSONA': 'Random Persona',
+          'FIELD EXPERT': 'Field Expert',
+          'CROSS INDUSTRY ROOT CAUSE': 'Cross-Industry Root Cause',
+          'RANDOM PERSONA': 'Random Persona'
+        };
+        const sourceTitle = source.title || source.industry || source.persona;
+        console.log(`Rendering source ${i + 1}: type="${source.source_type}", title="${sourceTitle}"`);
+        return `
+          <div style="margin-bottom: 10px; padding: 8px; background: #f8f9fa; border-left: 3px solid #28a745; border-radius: 3px;">
+            <strong>${i + 1}. ${sourceTypeLabels[source.source_type] || source.source_type}:</strong> ${sourceTitle}<br>
+            <em style="color: #666; font-size: 0.9em;">${source.description}</em><br>
+            <small style="color: #888;">(addresses interpretation ${interpretationIndex})</small>
+          </div>
+        `;
+      }).join('');
       
       searchResults.innerHTML = `
         <div style="padding: 15px; background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px;">
           <strong>Problem Analysis Complete!</strong><br><br>
-          <strong>Root Cause:</strong> ${analysis.root_cause}<br><br>
-          <strong>Industry Examples:</strong><br>
-          ${industryExamplesHtml}<br><br>
-          <strong>Random Inspiration:</strong><br>
-          <strong>${analysis.random_example.concept}:</strong> ${analysis.random_example.description}
+          <strong>Problem Assessment:</strong> ${analysis.problem_assessment}<br><br>
+          <strong>Multiple Root Cause Interpretations:</strong><br>
+          ${problemInterpretationsHtml}<br>
+          <strong>Inspiration Sources:</strong><br>
+          ${inspirationSourcesHtml}
         </div>
       `;
     }
     
     // Step 2: Perplexity - Find sources for examples
-    if (searchResults) {
-      searchResults.innerHTML += `
+    if (searchProgress) {
+      searchProgress.innerHTML += `
         <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px; margin-top: 10px;">
           <strong>Step 2/4: Finding sources...</strong><br>
           Searching for detailed articles about the examples
@@ -392,12 +507,41 @@ async function processUserProblem(problem) {
       `;
     }
     
-    const urls = await searchWithPerplexity(analysis);
+    const searchResult = await searchWithPerplexity(analysis);
+    const urls = searchResult.urls;
+    const searchPrompts = searchResult.searchPrompts;
     console.log('Found URLs:', urls);
+    console.log('Search prompts used:', searchPrompts);
+    
+    // Display Perplexity search prompts
+    if (searchResults) {
+      const perplexityPromptsDiv = document.getElementById('perplexityPrompts');
+      if (perplexityPromptsDiv) {
+        perplexityPromptsDiv.innerHTML = `
+          <div style="padding: 15px; background: #e8f4fd; border: 1px solid #b3d9ff; border-radius: 4px;">
+            <strong>Perplexity Search Prompts Used:</strong><br><br>
+            ${searchPrompts.map((prompt, index) => `
+              <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+                <div style="font-weight: bold; margin-bottom: 5px;">
+                  ${prompt.type} ${index + 1}: ${prompt.industry || prompt.concept}
+                </div>
+                <div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">
+                  <strong>Search Query:</strong> ${prompt.searchQuery}
+                </div>
+                <div style="font-size: 0.85em; color: #333;">
+                  <strong>Full Prompt:</strong><br>
+                  <pre style="background: #fff; padding: 8px; border: 1px solid #ddd; border-radius: 3px; white-space: pre-wrap; font-size: 0.8em; margin-top: 5px;">${prompt.prompt}</pre>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+    }
     
     // Step 3: DiffBot - Scrape content from URLs with replacement for failed ones
-    if (searchResults) {
-      searchResults.innerHTML += `
+    if (searchProgress) {
+      searchProgress.innerHTML += `
         <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px; margin-top: 10px;">
           <strong>Step 3/4: Scraping content...</strong><br>
           Extracting detailed information from articles
@@ -412,36 +556,67 @@ async function processUserProblem(problem) {
     // First pass: try to scrape all URLs
     for (let i = 0; i < urls.length; i++) {
       const url = urls[i];
+      let content = null;
+      let scrapingMethod = '';
+      
       try {
         // Show progress
-        if (searchResults) {
-          const progressDiv = searchResults.querySelector('div:last-child');
+        if (searchProgress) {
+          const progressDiv = searchProgress.querySelector('div:last-child');
           if (progressDiv) {
             progressDiv.innerHTML = `
               <strong>Step 3/4: Scraping content...</strong><br>
-              Processing ${i + 1} of ${urls.length}: <a href="${url}" target="_blank">${url}</a>
+              Processing ${i + 1} of ${urls.length}: <a href="${url}" target="_blank">${url}</a><br>
+              Trying Diffbot...
             `;
           }
         }
         
-        const content = await scrapeWithDiffbot(url, 8000); // 8 second timeout
-        scrapedContent.push({ url, ...content });
-        console.log(`Successfully scraped: ${url}`);
+        // Try Diffbot first
+        content = await scrapeWithDiffbot(url, 8000); // 8 second timeout
+        scrapingMethod = 'Diffbot';
+        console.log(`Successfully scraped with Diffbot: ${url}`);
       } catch (e) {
-        console.error(`Failed to scrape ${url}:`, e);
-        failedUrls.push(url);
+        console.error(`Diffbot failed for ${url}:`, e);
         
-        // Show timeout or error message
-        if (searchResults && e.message.includes('Timeout')) {
-          const progressDiv = searchResults.querySelector('div:last-child');
-          if (progressDiv) {
-            progressDiv.innerHTML = `
-              <strong>Step 3/4: Scraping content...</strong><br>
-              Skipped ${url} (timeout) - will find replacement...<br>
-              Processed ${i + 1} of ${urls.length}
-            `;
+          // Try DeepSeek as fallback
+          try {
+            if (searchProgress) {
+              const progressDiv = searchProgress.querySelector('div:last-child');
+              if (progressDiv) {
+                progressDiv.innerHTML = `
+                  <strong>Step 3/4: Scraping content...</strong><br>
+                  Processing ${i + 1} of ${urls.length}: <a href="${url}" target="_blank">${url}</a><br>
+                  Diffbot failed, trying DeepSeek fallback...
+                `;
+              }
+            }
+          
+          content = await scrapeWithDeepseek(url);
+          scrapingMethod = 'DeepSeek (fallback)';
+          console.log(`Successfully scraped with DeepSeek fallback: ${url}`);
+        } catch (fallbackError) {
+          console.error(`Both Diffbot and DeepSeek failed for ${url}:`, fallbackError);
+          failedUrls.push(url);
+          
+          // Show error message
+          if (searchProgress) {
+            const progressDiv = searchProgress.querySelector('div:last-child');
+            if (progressDiv) {
+              progressDiv.innerHTML = `
+                <strong>Step 3/4: Scraping content...</strong><br>
+                Failed to scrape ${url} (both Diffbot and DeepSeek failed)<br>
+                Processed ${i + 1} of ${urls.length}
+              `;
+            }
           }
         }
+      }
+      
+      // If we got content from either method, add it
+      if (content) {
+        scrapedContent.push({ url, ...content, scrapingMethod });
+        console.log(`Successfully scraped: ${url} using ${scrapingMethod}`);
       }
     }
     
@@ -450,8 +625,8 @@ async function processUserProblem(problem) {
       const neededSources = targetSources - scrapedContent.length;
       console.log(`Finding ${neededSources} replacement sources for failed URLs`);
       
-      if (searchResults) {
-        const progressDiv = searchResults.querySelector('div:last-child');
+      if (searchProgress) {
+        const progressDiv = searchProgress.querySelector('div:last-child');
         if (progressDiv) {
           progressDiv.innerHTML = `
             <strong>Step 3/4: Finding replacement sources...</strong><br>
@@ -475,28 +650,58 @@ async function processUserProblem(problem) {
             continue;
           }
           
+          let content = null;
+          let scrapingMethod = '';
+          
           try {
-            if (searchResults) {
-              const progressDiv = searchResults.querySelector('div:last-child');
+            if (searchProgress) {
+              const progressDiv = searchProgress.querySelector('div:last-child');
               if (progressDiv) {
                 progressDiv.innerHTML = `
                   <strong>Step 3/4: Trying replacement sources...</strong><br>
-                  Attempting ${url}<br>
+                  Attempting ${url} (Diffbot)<br>
                   Found ${scrapedContent.length}/${targetSources} sources
                 `;
               }
             }
             
-            const content = await scrapeWithDiffbot(url, 8000);
-            scrapedContent.push({ url, ...content });
-            console.log(`Successfully scraped replacement: ${url}`);
+            // Try Diffbot first
+            content = await scrapeWithDiffbot(url, 8000);
+            scrapingMethod = 'Diffbot';
+            console.log(`Successfully scraped replacement with Diffbot: ${url}`);
+          } catch (e) {
+            console.error(`Diffbot failed for replacement ${url}:`, e);
+            
+            // Try DeepSeek as fallback
+            try {
+              if (searchProgress) {
+                const progressDiv = searchProgress.querySelector('div:last-child');
+                if (progressDiv) {
+                  progressDiv.innerHTML = `
+                    <strong>Step 3/4: Trying replacement sources...</strong><br>
+                    Attempting ${url} (DeepSeek fallback)<br>
+                    Found ${scrapedContent.length}/${targetSources} sources
+                  `;
+                }
+              }
+              
+              content = await scrapeWithDeepseek(url);
+              scrapingMethod = 'DeepSeek (fallback)';
+              console.log(`Successfully scraped replacement with DeepSeek: ${url}`);
+            } catch (fallbackError) {
+              console.error(`Both Diffbot and DeepSeek failed for replacement ${url}:`, fallbackError);
+            }
+          }
+          
+          // If we got content from either method, add it
+          if (content) {
+            scrapedContent.push({ url, ...content, scrapingMethod });
+            console.log(`Successfully scraped replacement: ${url} using ${scrapingMethod}`);
             
             // Stop if we have enough sources
             if (scrapedContent.length >= targetSources) {
               break;
             }
-          } catch (e) {
-            console.error(`Failed to scrape replacement ${url}:`, e);
           }
         }
       } catch (e) {
@@ -505,17 +710,23 @@ async function processUserProblem(problem) {
     }
 
     // Show final scraping results
-    if (searchResults) {
+    if (searchProgress) {
       const successCount = scrapedContent.length;
       const totalCount = urls.length;
       const skippedCount = totalCount - successCount;
       const replacementCount = successCount - totalCount;
       
-      searchResults.innerHTML += `
+      // Count scraping methods
+      const diffbotCount = scrapedContent.filter(c => c.scrapingMethod === 'Diffbot').length;
+      const deepseekCount = scrapedContent.filter(c => c.scrapingMethod === 'DeepSeek (fallback)').length;
+      
+      searchProgress.innerHTML += `
         <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; margin-top: 10px;">
           <strong>Scraping Complete!</strong><br>
           Successfully scraped: ${successCount} sources<br>
-          ${skippedCount > 0 ? `Original URLs skipped: ${skippedCount} (timeouts/errors)` : ''}<br>
+          ${diffbotCount > 0 ? `Diffbot: ${diffbotCount} sources` : ''}<br>
+          ${deepseekCount > 0 ? `DeepSeek fallback: ${deepseekCount} sources` : ''}<br>
+          ${skippedCount > 0 ? `Original URLs skipped: ${skippedCount} (both methods failed)` : ''}<br>
           ${replacementCount > 0 ? `Replacement sources found: ${replacementCount}` : ''}<br>
           Target: 6 sources (2 per inspiration example)
         </div>
@@ -523,9 +734,9 @@ async function processUserProblem(problem) {
     }
 
     // Step 4: DeepSeek - Generate inspiration prompts
-    if (generatedPrompts) {
-      generatedPrompts.innerHTML = `
-        <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px;">
+    if (searchProgress) {
+      searchProgress.innerHTML += `
+        <div style="padding: 15px; background: #e3f2fd; border: 1px solid #2196f3; border-radius: 4px; margin-top: 10px;">
           <strong>Step 4/4: Generating inspiration prompts...</strong><br>
           Converting article insights into creative prompts
         </div>
@@ -535,23 +746,46 @@ async function processUserProblem(problem) {
     const prompts = [];
     const failedPrompts = [];
     
+    // Group scraped content by inspiration source
+    const promptsBySource = {
+      'FIELD_EXPERT': [],
+      'CROSS_INDUSTRY_ROOT_CAUSE': [],
+      'RANDOM_PERSONA': []
+    };
+    
+    // Map URLs back to their inspiration sources
+    const urlToSourceMap = {};
+    if (analysis.inspiration_sources) {
+      analysis.inspiration_sources.forEach((source, sourceIndex) => {
+        // Find URLs that came from this source (assuming 2 URLs per source)
+        const startIndex = sourceIndex * 2;
+        const endIndex = startIndex + 2;
+        for (let i = startIndex; i < Math.min(endIndex, urls.length); i++) {
+          if (urls[i]) {
+            urlToSourceMap[urls[i]] = source.source_type;
+          }
+        }
+      });
+    }
+    
     for (let i = 0; i < scrapedContent.length; i++) {
       const content = scrapedContent[i];
+      const sourceType = urlToSourceMap[content.url] || 'UNKNOWN';
       
       try {
         // Show progress
-        if (generatedPrompts) {
-          const progressDiv = generatedPrompts.querySelector('div:last-child');
+        if (searchProgress) {
+          const progressDiv = searchProgress.querySelector('div:last-child');
           if (progressDiv) {
             progressDiv.innerHTML = `
               <strong>Step 4/4: Generating inspiration prompts...</strong><br>
               Processing ${i + 1} of ${scrapedContent.length}: <a href="${content.url}" target="_blank">${content.title}</a><br>
-              Generated ${prompts.length} prompts so far
+              Source: ${sourceType} | Generated ${prompts.length} prompts so far
             `;
           }
         }
         
-        console.log(`Generating prompt for source ${i + 1}/${scrapedContent.length}: ${content.url}`);
+        console.log(`Generating prompt for source ${i + 1}/${scrapedContent.length}: ${content.url} (${sourceType})`);
         console.log(`Content preview: ${content.text.substring(0, 200)}...`);
         
         // Try to generate prompt with retry logic
@@ -582,12 +816,20 @@ async function processUserProblem(problem) {
         }
         
         if (prompt && prompt.trim().length > 10) {
-          prompts.push({
+          const promptObj = {
             prompt,
             url: content.url,
-            title: content.title
-          });
-          console.log(`Successfully generated prompt for: ${content.url}`);
+            title: content.title,
+            sourceType: sourceType
+          };
+          prompts.push(promptObj);
+          
+          // Also add to source-specific group
+          if (promptsBySource[sourceType]) {
+            promptsBySource[sourceType].push(promptObj);
+          }
+          
+          console.log(`Successfully generated prompt for: ${content.url} (${sourceType})`);
         } else {
           console.warn(`Failed to generate valid prompt after ${maxAttempts} attempts for: ${content.url}`);
           failedPrompts.push({ url: content.url, title: content.title, reason: `Failed after ${maxAttempts} attempts` });
@@ -602,31 +844,78 @@ async function processUserProblem(problem) {
     if (failedPrompts.length > 0) {
       console.log('Failed prompts:', failedPrompts);
     }
+    
+    // Update search history with generated prompts
+    const searchHistory = loadSearchHistory();
+    if (searchHistory.length > 0) {
+      const latestSearch = searchHistory[searchHistory.length - 1];
+      if (latestSearch.problem === problem) {
+        latestSearch.prompts = prompts.map(p => p.prompt);
+        localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
+      }
+    }
 
-    // Display final results
+    // Display final results grouped by source type
     if (generatedPrompts) {
-      generatedPrompts.innerHTML = `
+      const sourceTypeLabels = {
+        'FIELD_EXPERT': 'Field Expert',
+        'CROSS_INDUSTRY_ROOT_CAUSE': 'Cross-Industry',
+        'RANDOM_PERSONA': 'Random Persona',
+        'FIELD EXPERT': 'Field Expert',
+        'CROSS INDUSTRY ROOT CAUSE': 'Cross-Industry',
+        'RANDOM PERSONA': 'Random Persona'
+      };
+      
+      const sourceOrder = ['FIELD_EXPERT', 'CROSS_INDUSTRY_ROOT_CAUSE', 'RANDOM_PERSONA'];
+      
+      let promptsHtml = `
         <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
           <strong>Complete!</strong><br>
           Generated ${prompts.length} inspiration prompts from ${scrapedContent.length} articles<br>
           ${failedPrompts.length > 0 ? `<span style="color: #856404;">Failed to generate prompts: ${failedPrompts.length} sources</span>` : ''}
         </div>
-        ${prompts.map(p => `
-          <div style="padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; margin-top: 10px;">
-            <strong>Source:</strong> <a href="${p.url}" target="_blank">${p.title}</a><br><br>
-            <strong>Inspiration Prompt:</strong><br>
-            ${p.prompt}
-          </div>
-        `).join('')}
-        ${failedPrompts.length > 0 ? `
-          <div style="padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; margin-top: 10px;">
+      `;
+      
+      // Display prompts grouped by source type in order
+      sourceOrder.forEach(sourceType => {
+        const sourcePrompts = promptsBySource[sourceType] || [];
+        if (sourcePrompts.length > 0) {
+          const sourceLabel = sourceTypeLabels[sourceType] || sourceType;
+          promptsHtml += `
+            <div style="margin-top: 15px;">
+              <h4 style="margin-bottom: 10px; color: #495057; border-bottom: 2px solid #dee2e6; padding-bottom: 5px;">
+                ${sourceLabel} Prompts (${sourcePrompts.length})
+              </h4>
+              ${sourcePrompts.map(p => `
+                <div style="padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; margin-bottom: 10px;">
+                  <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                    <span style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; margin-right: 8px;">
+                      ${sourceLabel}
+                    </span>
+                    <strong>Source:</strong> <a href="${p.url}" target="_blank" style="margin-left: 5px;">${p.title}</a>
+                  </div>
+                  <strong>Inspiration Prompt:</strong><br>
+                  ${p.prompt}
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }
+      });
+      
+      // Add failed prompts section
+      if (failedPrompts.length > 0) {
+        promptsHtml += `
+          <div style="padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; margin-top: 15px;">
             <strong>Sources that failed to generate prompts:</strong><br>
             ${failedPrompts.map(fp => `
               • <a href="${fp.url}" target="_blank">${fp.title}</a> - ${fp.reason}
             `).join('<br>')}
           </div>
-        ` : ''}
-      `;
+        `;
+      }
+      
+      generatedPrompts.innerHTML = promptsHtml;
     }
 
     return {
@@ -665,8 +954,8 @@ async function processUserProblem(problem) {
       `;
     }
     
-    if (searchResults) {
-      searchResults.innerHTML = `
+    if (searchProgress) {
+      searchProgress.innerHTML = `
         <div style="color: red; padding: 15px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
           <strong>Error: ${errorMessage}</strong>
           ${errorDetails}
@@ -682,7 +971,8 @@ async function processUserProblem(problem) {
 }
 
 let urlInput, processBtn, promptSection, historyPanel, historyGroups, 
-    systemPromptInput, referenceMaterialInput, problemDescriptionInput, clearHistoryBtn;
+    systemPromptInput, referenceMaterialInput, problemDescriptionInput, clearHistoryBtn,
+    searchProgress;
 
 // Initialize DOM elements after the document is loaded
 document.addEventListener('DOMContentLoaded', () => {
@@ -696,9 +986,16 @@ document.addEventListener('DOMContentLoaded', () => {
   referenceMaterialInput = document.getElementById('referenceMaterial');
   problemDescriptionInput = document.getElementById('problemDescription');
   clearHistoryBtn = document.getElementById('clearHistoryBtn');
+  searchProgress = document.getElementById('searchProgress');
 
   // Initialize search button
   const searchWebBtn = document.getElementById('searchWebBtn');
+  const clearSearchHistoryBtn = document.getElementById('clearSearchHistoryBtn');
+
+  // Add event listener for clear search history button
+  if (clearSearchHistoryBtn) {
+    clearSearchHistoryBtn.addEventListener('click', clearSearchHistory);
+  }
 
   // Add event listener for web search button
   if (searchWebBtn) {
@@ -714,11 +1011,48 @@ document.addEventListener('DOMContentLoaded', () => {
       const generatedPrompts = document.getElementById('generatedPrompts');
       
       try {
-        // Step 1: Search with Perplexity
-        searchWebBtn.textContent = 'Searching with Perplexity...';
-        searchResults.innerHTML = '<div class="loading">Searching for relevant articles...</div>';
+        // Step 1: Analyze problem and search with Perplexity
+        searchWebBtn.textContent = 'Analyzing problem...';
+        if (searchProgress) {
+          searchProgress.innerHTML = '<div class="loading">Analyzing problem and generating examples...</div>';
+        }
         generatedPrompts.innerHTML = '';
-        const urls = await searchWithPerplexity(problemDescriptionInput.value.trim());
+        
+        // First analyze the problem to get examples
+        const analysis = await analyzeProblemAndGenerateExamples(problemDescriptionInput.value.trim());
+        
+        // Then search with Perplexity using the examples
+        searchWebBtn.textContent = 'Searching with Perplexity...';
+        if (searchProgress) {
+          searchProgress.innerHTML += '<div class="loading">Searching for relevant articles...</div>';
+        }
+        const searchResult = await searchWithPerplexity(analysis);
+        const urls = searchResult.urls;
+        const searchPrompts = searchResult.searchPrompts;
+        
+        // Display Perplexity search prompts
+        const perplexityPromptsDiv = document.getElementById('perplexityPrompts');
+        if (perplexityPromptsDiv) {
+          perplexityPromptsDiv.innerHTML = `
+            <div style="padding: 15px; background: #e8f4fd; border: 1px solid #b3d9ff; border-radius: 4px;">
+              <strong>Perplexity Search Prompts Used:</strong><br><br>
+              ${searchPrompts.map((prompt, index) => `
+                <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+                  <div style="font-weight: bold; margin-bottom: 5px;">
+                    ${prompt.type} ${index + 1}: ${prompt.industry || prompt.concept}
+                  </div>
+                  <div style="font-size: 0.9em; color: #666; margin-bottom: 5px;">
+                    <strong>Search Query:</strong> ${prompt.searchQuery}
+                  </div>
+                  <div style="font-size: 0.85em; color: #333;">
+                    <strong>Full Prompt:</strong><br>
+                    <pre style="background: #fff; padding: 8px; border: 1px solid #ddd; border-radius: 3px; white-space: pre-wrap; font-size: 0.8em; margin-top: 5px;">${prompt.prompt}</pre>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }
         
         // Display raw URLs from Perplexity
         searchResults.innerHTML = '<div style="margin-bottom:20px;"><h3>Found URLs:</h3>' + 
@@ -730,7 +1064,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Step 2: Process URLs with Diffbot and Deepseek
         searchWebBtn.textContent = 'Processing content...';
-        searchResults.innerHTML += '<div class="loading">Processing article content...</div>';
+        if (searchProgress) {
+          searchProgress.innerHTML += '<div class="loading">Processing article content...</div>';
+        }
         const result = await processUserProblem(problemDescriptionInput.value.trim());
         
         // Display processed results
@@ -742,14 +1078,62 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           `).join('') + '</div>';
 
-        // Display generated prompts
-        generatedPrompts.innerHTML = result.prompts.map(prompt => `
-          <div class="generated-prompt">
-            <h4>${prompt.title}</h4>
-            <pre>${prompt.prompt}</pre>
-            <p><a href="${prompt.url}" target="_blank" rel="noopener">Source</a></p>
-          </div>
-        `).join('');
+        // Display generated prompts grouped by source
+        const sourceTypeLabels = {
+          'FIELD_EXPERT': 'Field Expert',
+          'CROSS_INDUSTRY_ROOT_CAUSE': 'Cross-Industry Root Cause',
+          'RANDOM_PERSONA': 'Random Persona',
+          'FIELD EXPERT': 'Field Expert',
+          'CROSS INDUSTRY ROOT CAUSE': 'Cross-Industry Root Cause',
+          'RANDOM PERSONA': 'Random Persona'
+        };
+        
+        const sourceOrder = ['FIELD_EXPERT', 'CROSS_INDUSTRY_ROOT_CAUSE', 'RANDOM_PERSONA'];
+        
+        // Group prompts by source type
+        const promptsBySource = {
+          'FIELD_EXPERT': [],
+          'CROSS_INDUSTRY_ROOT_CAUSE': [],
+          'RANDOM_PERSONA': []
+        };
+        
+        result.prompts.forEach(prompt => {
+          if (prompt.sourceType && promptsBySource[prompt.sourceType]) {
+            promptsBySource[prompt.sourceType].push(prompt);
+          }
+        });
+        
+        let promptsHtml = '';
+        sourceOrder.forEach(sourceType => {
+          const sourcePrompts = promptsBySource[sourceType] || [];
+          if (sourcePrompts.length > 0) {
+            const sourceLabel = sourceTypeLabels[sourceType] || sourceType;
+            promptsHtml += `
+              <div style="margin-top: 15px;">
+                <h4 style="margin-bottom: 10px; color: #495057; border-bottom: 2px solid #dee2e6; padding-bottom: 5px;">
+                  ${sourceLabel} Prompts (${sourcePrompts.length})
+                </h4>
+                ${sourcePrompts.map(p => `
+                  <div style="padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                      <span style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; margin-right: 8px;">
+                        ${sourceLabel}
+                      </span>
+                      <strong>Source:</strong> <a href="${p.url}" target="_blank" style="margin-left: 5px;">${p.title}</a>
+                    </div>
+                    <strong>Inspiration Prompt:</strong><br>
+                    ${p.prompt}
+                  </div>
+                `).join('')}
+              </div>
+            `;
+          }
+        });
+        
+        generatedPrompts.innerHTML = promptsHtml;
+        
+        // Update search history display
+        renderSearchHistory();
       } catch (error) {
         console.error('Search failed:', error);
         
@@ -779,12 +1163,14 @@ document.addEventListener('DOMContentLoaded', () => {
           `;
         }
         
-        searchResults.innerHTML = `
-          <div style="color: red; padding: 15px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
-            <strong>Error: ${errorMessage}</strong>
-            ${errorDetails}
-          </div>
-        `;
+        if (searchProgress) {
+          searchProgress.innerHTML = `
+            <div style="color: red; padding: 15px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
+              <strong>Error: ${errorMessage}</strong>
+              ${errorDetails}
+            </div>
+          `;
+        }
         generatedPrompts.innerHTML = '';
       } finally {
         searchWebBtn.disabled = false;
@@ -957,6 +1343,144 @@ function loadHistory() {
   return JSON.parse(localStorage.getItem('promptHistory') || '[]');
 }
 
+// --- Search History Management ---
+function saveSearchHistory(searchData) {
+  const searchHistory = loadSearchHistory();
+  searchHistory.push({
+    ...searchData,
+    timestamp: Date.now()
+  });
+  // Keep only last 10 searches to avoid storage bloat
+  if (searchHistory.length > 10) {
+    searchHistory.splice(0, searchHistory.length - 10);
+  }
+  localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
+}
+
+function loadSearchHistory() {
+  return JSON.parse(localStorage.getItem('searchHistory') || '[]');
+}
+
+function getPreviousSearchContext() {
+  const searchHistory = loadSearchHistory();
+  if (searchHistory.length === 0) return '';
+  
+  const recentSearches = searchHistory.slice(-3); // Get last 3 searches
+  const searchTopics = recentSearches.map(search => {
+    const topics = [];
+    if (search.analysis?.inspiration_sources) {
+      topics.push(...search.analysis.inspiration_sources.map(source => 
+        source.title || source.industry || source.persona
+      ));
+    }
+    return topics;
+  }).flat();
+  
+  // Extract key concepts from previous prompts
+  const previousPromptTopics = recentSearches.map(search => {
+    if (!search.prompts || !Array.isArray(search.prompts)) return [];
+    return search.prompts.map(prompt => {
+      // Extract key concepts from prompts (simple keyword extraction)
+      const words = prompt.toLowerCase()
+        .replace(/[^\w\s]/g, ' ') // Remove punctuation
+        .split(/\s+/)
+        .filter(word => word.length > 3) // Filter out short words
+        .filter(word => !['what', 'how', 'might', 'could', 'would', 'should', 'when', 'where', 'why', 'this', 'that', 'they', 'them', 'their', 'there', 'then', 'than'].includes(word)); // Filter out common words
+      return words.slice(0, 5); // Take first 5 meaningful words
+    }).flat();
+  }).flat();
+  
+  const allTopics = [...searchTopics, ...previousPromptTopics];
+  
+  if (allTopics.length === 0) return '';
+  
+  const uniqueTopics = [...new Set(allTopics)];
+  return `Previous search topics and prompt concepts to avoid: ${uniqueTopics.join(', ')}`;
+}
+
+// --- Search History UI Functions ---
+function renderSearchHistory() {
+  const searchHistoryDiv = document.getElementById('searchHistory');
+  if (!searchHistoryDiv) return;
+  
+  const searchHistory = loadSearchHistory();
+  
+  if (searchHistory.length === 0) {
+    searchHistoryDiv.innerHTML = '<div style="color: #666; font-style: italic;">No previous searches yet.</div>';
+    return;
+  }
+  
+  // Sort by timestamp (newest first)
+  const sortedHistory = searchHistory.sort((a, b) => b.timestamp - a.timestamp);
+  
+  searchHistoryDiv.innerHTML = sortedHistory.map((search, index) => {
+    const date = new Date(search.timestamp).toLocaleString();
+    const inspirationSources = search.analysis?.inspiration_sources || [];
+    const prompts = search.prompts || [];
+    const problemAssessment = search.analysis?.problem_assessment || 'Unknown';
+    const interpretations = search.analysis?.problem_interpretations || [];
+    
+    const sourceTypeLabels = {
+      'FIELD_EXPERT': 'Field Expert',
+      'CROSS_INDUSTRY_ROOT_CAUSE': 'Cross-Industry',
+      'RANDOM_PERSONA': 'Random Persona',
+      'FIELD EXPERT': 'Field Expert',
+      'CROSS INDUSTRY ROOT CAUSE': 'Cross-Industry',
+      'RANDOM PERSONA': 'Random Persona'
+    };
+    
+    const inspirationSourcesText = inspirationSources.map(source => {
+      const sourceType = sourceTypeLabels[source.source_type] || source.source_type;
+      const sourceTitle = source.title || source.industry || source.persona;
+      return `${sourceType}: ${sourceTitle}`;
+    }).join(', ');
+    
+    return `
+      <div style="padding: 10px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; margin-bottom: 8px;">
+        <div style="font-weight: bold; margin-bottom: 4px;">Search ${index + 1} - ${date}</div>
+        <div style="font-size: 0.9em; color: #666; margin-bottom: 4px;">
+          <strong>Problem:</strong> ${search.problem.substring(0, 100)}${search.problem.length > 100 ? '...' : ''}
+        </div>
+        <div style="font-size: 0.85em; color: #888; margin-bottom: 4px;">
+          <strong>Assessment:</strong> ${problemAssessment} | 
+          <strong>Sources:</strong> ${inspirationSourcesText || 'None'}
+        </div>
+        ${interpretations.length > 1 ? `
+          <div style="font-size: 0.8em; color: #666; margin-bottom: 4px;">
+            <strong>Problem Interpretations (${interpretations.length}):</strong>
+            <div style="margin-top: 2px;">
+              ${interpretations.map((interp, i) => `
+                <div style="margin-bottom: 2px; padding: 2px 4px; background: #e3f2fd; border-radius: 2px; font-size: 0.75em;">
+                  ${i + 1}. ${interp.root_cause.substring(0, 60)}${interp.root_cause.length > 60 ? '...' : ''}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+        ${prompts.length > 0 ? `
+          <div style="font-size: 0.8em; color: #666;">
+            <strong>Generated Prompts (${prompts.length}):</strong>
+            <div style="margin-top: 2px; max-height: 60px; overflow-y: auto;">
+              ${prompts.map(prompt => `
+                <div style="margin-bottom: 2px; padding: 2px 4px; background: #e9ecef; border-radius: 2px; font-size: 0.75em;">
+                  ${prompt.substring(0, 80)}${prompt.length > 80 ? '...' : ''}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function clearSearchHistory() {
+  if (confirm('Are you sure you want to clear all search history?')) {
+    localStorage.removeItem('searchHistory');
+    renderSearchHistory();
+  }
+}
+
 // --- Utility: Grouping ---
 function groupPrompts(history) {
   // Simple grouping by article title
@@ -1070,7 +1594,9 @@ async function generatePrompts(sectionText, sectionHeader) {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      max_tokens: 400
+      max_tokens: 400,
+      temperature: 1.5,
+      presence_penalty: 1
     })
   });
 
@@ -1106,7 +1632,9 @@ async function getShortTitle(promptText) {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      max_tokens: 32
+      max_tokens: 32,
+      temperature: 1.5,
+      presence_penalty: 1
     })
   });
   if (!res.ok) return '';
@@ -1440,6 +1968,7 @@ function renderHistory() {
 // --- On Load: Render History and System Prompt ---
 window.onload = async () => {
   renderHistory();
+  renderSearchHistory(); // Initialize search history display
   // Load system prompt from localStorage or file
   let sysPrompt = await getSystemPrompt();
   if (sysPrompt) {

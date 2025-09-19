@@ -334,6 +334,13 @@ h1 {
   margin-left: 10px;
 }
 
+.search-progress {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .search-results {
   margin-top: 12px;
   display: flex;
