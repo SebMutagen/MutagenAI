@@ -368,9 +368,7 @@ async function moveToNextPhase() {
                 // No announcement - seamless transition
                 break;
         }
-    } else {
-        addMessageToChat('ai', 'We\'ve completed all phases! Feel free to start over with a new problem or continue refining your ideas.', true);
-    }
+    } 
 }
 
 // Chat Interface
