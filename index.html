@@ -1,136 +1,214 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mutagen.AI</title>
-  <link rel="stylesheet" href="styles.css">
-  <link href="https://fonts.googleapis.com/css?family=Proxima+Nova:400,700&display=swap" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mutagen.AI - AI Brainstorming Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div id="landingOverlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(249,249,249,0.98);z-index:9999;display:flex;align-items:center;justify-content:center;">
-    <form id="landingForm" style="background:#fff;padding:36px 32px 28px 32px;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);display:flex;flex-direction:column;gap:18px;min-width:340px;max-width:90vw;">
-      <h2 style="margin-bottom:8px;">Describe your problem</h2>
-      <textarea id="landingUser" rows="3" placeholder="Describe your user..." style="font-size:1rem;padding:10px;border-radius:6px;border:1px solid #ddd;"></textarea>
-      <textarea id="landingGoal" rows="3" placeholder="Describe what they want to achieve and why..." style="font-size:1rem;padding:10px;border-radius:6px;border:1px solid #ddd;"></textarea>
-      <textarea id="landingWhy" rows="3" placeholder="Describe what's stopping them and why..." style="font-size:1rem;padding:10px;border-radius:6px;border:1px solid #ddd;"></textarea>
-      <textarea id="landingConstraints" rows="3" placeholder="List any constraints or limitations you have..." style="font-size:1rem;padding:10px;border-radius:6px;border:1px solid #ddd;"></textarea>
-      <button type="submit" style="margin-top:8px;padding:12px 0;font-size:1.1rem;background:#222;color:#fff;border:none;border-radius:6px;cursor:pointer;">Submit</button>
-      <div style="margin-top:16px;text-align:center;color:#666;">
-        <div style="margin-bottom:8px;">Or try an example:</div>
-        <div style="display:flex;gap:12px;justify-content:center;">
-          <button type="button" id="cookingExampleBtn" style="padding:8px 16px;font-size:0.9rem;background:#f5f5f5;color:#333;border:1px solid #ddd;border-radius:4px;cursor:pointer;">Help young, busy professionals learn how to cook</button>
-          <button type="button" id="flightExampleBtn" style="padding:8px 16px;font-size:0.9rem;background:#f5f5f5;color:#333;border:1px solid #ddd;border-radius:4px;cursor:pointer;">Improve the flight booking process for elderly people</button>
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <h1>Mutagen.AI</h1>
+                <span class="tagline">AI-Powered Brainstorming</span>
+            </div>
+            <div class="tabs">
+                <button class="tab-button active" id="brainstormingTab">Brainstorming</button>
+                <button class="tab-button" id="savedIdeasTab">Saved Ideas</button>
+            </div>
         </div>
-      </div>
-    </form>
-  </div>
-  <div id="deckPanel" class="deck-panel">
-    <div id="deckTrash" class="deck-trash" title="Drag here to delete" style="position:absolute;top:18px;right:18px;width:36px;height:36px;z-index:101;">
-      <img src="bin.png" alt="Delete" style="width:32px;height:32px;display:block;margin:auto;" />
+
+
+        <!-- Content Wrapper -->
+        <div class="content-wrapper">
+            <!-- Brainstorming Tab Content -->
+            <div id="brainstormingContent" class="tab-content active">
+                <!-- Main Content Area -->
+                <div class="main-content">
+                <!-- Left Sidebar -->
+                <div id="leftSidebar" class="left-sidebar">
+                    <!-- Problem Statement Card -->
+                    <div class="problem-statement-card locked" id="problemStatementCard">
+                        <h3>
+                            <svg class="lock-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10z"/>
+                            </svg>
+                            <svg class="edit-icon" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                            </svg>
+                            Problem Statement
+                        </h3>
+                        <div id="problemStatementContent" class="problem-content">
+                            <p class="placeholder-text">Problem statement will appear here as we understand it better</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Persona Card -->
+                    <div class="persona-card locked" id="personaCard">
+                        <h3>
+                            <svg class="lock-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10z"/>
+                            </svg>
+                            <svg class="edit-icon" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                            </svg>
+                            Persona
+                        </h3>
+                        <div id="personaContent" class="persona-content">
+                            <p class="placeholder-text">Persona details will appear here as we develop them</p>
+                        </div>
+                    </div>
+
+                    <!-- AI Suggested Responses -->
+                    <div class="suggested-responses-card" id="suggestedResponsesCard">
+                        <h3>Suggested Responses</h3>
+                        <div class="suggested-responses-list" id="suggestedResponsesList">
+                            <p class="placeholder-text">AI will suggest responses here</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Interface -->
+                <div class="chat-interface">
+                <div class="chat-messages" id="chatMessages">
+                <!-- Welcome message -->
+                    <div class="message ai-message">
+                        <div class="message-avatar">
+                            <div class="avatar-icon">AI</div>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-header">
+                                <span class="sender-name">Mutagen AI</span>
+                                <span class="message-time">now</span>
+                            </div>
+                            <div class="message-text">
+                                <h3>Welcome! I'm your AI design consultant 🚀</h3>
+                                <p>I'll help you come up with creative ideas through a structured 5-phase process:</p>
+                                <div class="phase-list">
+                                    <div class="phase-item">
+                                        <span class="phase-number">1</span>
+                                        <span class="phase-text">Contextualizing - Understanding your problem deeply</span>
+                                    </div>
+                                    <div class="phase-item">
+                                        <span class="phase-number">2</span>
+                                        <span class="phase-text">Persona Development - Creating a detailed user profile</span>
+                                    </div>
+                                    <div class="phase-item">
+                                        <span class="phase-number">3</span>
+                                        <span class="phase-text">Problem Reframing - Expanding creative possibilities</span>
+                                    </div>
+                                    <div class="phase-item">
+                                        <span class="phase-number">4</span>
+                                        <span class="phase-text">Ideation - Generating creative prompts (shown in sidebar)</span>
+                                    </div>
+                                    <div class="phase-item">
+                                        <span class="phase-number">5</span>
+                                        <span class="phase-text">Evaluation - Reviewing and refining your ideas</span>
+                                    </div>
+                                </div>
+                                <p><strong>What problem would you like to solve today?</strong></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Processing Indicator -->
+                <div id="processingIndicator" class="processing-indicator" style="display: none;">
+                    <div class="message ai-message">
+                        <div class="message-avatar">
+                            <div class="avatar-icon">AI</div>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-header">
+                                <span class="sender-name">Mutagen AI</span>
+                                <span class="message-time">now</span>
+                            </div>
+                            <div class="message-text">
+                                <div class="typing-indicator">
+                                    <span></span>
+                                    <span></span>
+                                    <span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Input Area -->
+                <div class="input-area">
+                    <div class="input-container">
+                        <textarea 
+                            id="chatInput" 
+                            class="message-input" 
+                            placeholder="Describe your problem or share an idea..."
+                            rows="1"
+                        ></textarea>
+                        <button id="sendButton" class="send-button">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22,2 15,22 11,13 2,9"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar -->
+            <div id="rightSidebar" class="right-sidebar">
+                <!-- Generated Prompts Card -->
+                <div class="prompts-card">
+                    <div class="prompts-header">
+                        <h3>Brainstorming Prompts</h3>
+                        <button id="refreshPromptsBtn" class="refresh-button" title="Generate new prompts">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="23,4 23,10 17,10"></polyline>
+                                <polyline points="1,20 1,14 7,14"></polyline>
+                                <path d="M20.49,9A9,9,0,0,0,5.64,5.64L1,10m22,4L18.36,18.36A9,9,0,0,1,3.51,15"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="promptsList" class="prompts-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">💡</div>
+                            <p>Prompts will appear here as we generate them</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+
+            <!-- Saved Ideas Tab Content -->
+            <div id="savedIdeasContent" class="tab-content">
+                <div class="saved-ideas-container">
+                    <div class="saved-ideas-header">
+                        <h2>Your Saved Ideas</h2>
+                        <p>Ideas you've created during brainstorming sessions</p>
+                    </div>
+                    <div id="savedIdeasList" class="saved-ideas-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">💡</div>
+                            <h3>No saved ideas yet</h3>
+                            <p>Start brainstorming to save your ideas here</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
-    <h2>Deck</h2>
-    <div id="deckPrompts">
-      <!-- Saved prompts will appear here -->
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">AI is thinking...</div>
+        </div>
     </div>
-  </div>
-  <div class="container">
-    <h1>Mutagen.AI</h1>
-    <div class="config-section-visual">
-      <div class="config-row">
-        <div class="config-block collapsed" id="systemPromptBlock">
-          <div class="config-block-header">
-            <label for="systemPrompt">System Prompt</label>
-            <button type="button" class="toggle-btn" id="toggleSystemPrompt" aria-expanded="false" aria-controls="systemPromptContent">
-              <img src="expand.png" alt="Expand" />
-            </button>
-          </div>
-          <div class="config-block-content" id="systemPromptContent">
-            <textarea id="systemPrompt" rows="4" placeholder="Edit the system prompt for the AI..."></textarea>
-          </div>
-        </div>
-        <div class="config-block collapsed" id="problemDescriptionBlock">
-          <div class="config-block-header">
-            <label for="problemDescription">Problem Statement</label>
-            <button type="button" class="toggle-btn" id="toggleProblemDescription" aria-expanded="false" aria-controls="problemDescriptionContent">
-              <img src="expand.png" alt="Expand" />
-            </button>
-          </div>
-          <div class="config-block-content" id="problemDescriptionContent">
-            <textarea id="problemDescription" rows="4" placeholder="Describe the problem you are facing..."></textarea>
-          </div>
-        </div>
-      </div>
-      <div class="config-row">
-        <div class="config-block config-block-full" id="referenceMaterialBlock">
-          <label for="referenceMaterialInput">Reference material</label>
-          <div class="input-section">
-            <textarea id="referenceMaterialInput" rows="3" placeholder="Paste or type reference material here..."></textarea>
-            <button id="processReferenceBtn">Process Reference Material</button>
-          </div>
-        </div>
-      </div>
-      <div class="config-row">
-        <div class="config-block config-block-full" id="searchBlock">
-          <div class="input-section">
-            <button id="searchWebBtn">Search Web</button>
-            <button id="clearSearchHistoryBtn" style="margin-left: 10px; background: #dc3545; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer;">Clear Search History</button>
-          </div>
-        </div>
-      </div>
-      <div class="config-row">
-        <div class="config-block config-block-full" id="searchHistoryBlock">
-          <h3>Previous Searches</h3>
-          <div id="searchHistory" class="search-history">
-            <!-- Search history will appear here -->
-          </div>
-        </div>
-      </div>
-      <div class="config-row">
-        <div class="config-block config-block-full" id="perplexityPromptsBlock">
-          <h3>Perplexity Search Prompts</h3>
-          <div id="perplexityPrompts" class="perplexity-prompts">
-            <!-- Perplexity prompts will appear here -->
-          </div>
-        </div>
-      </div>
-      <div class="config-row">
-        <div class="config-block config-block-full" id="searchProgressBlock">
-          <h3>Search Progress</h3>
-          <div id="searchProgress" class="search-progress">
-            <!-- Step progress messages will appear here -->
-          </div>
-        </div>
-      </div>
-      <div class="config-row">
-        <div class="config-block config-block-full" id="searchResultsBlock">
-          <h3>Search Results</h3>
-          <div id="searchResults" class="search-results">
-            <!-- Search results will appear here -->
-          </div>
-        </div>
-      </div>
-      <div class="config-row">
-        <div class="config-block config-block-full" id="generatedPromptsBlock">
-          <h3>Generated Prompts</h3>
-          <div id="generatedPrompts" class="generated-prompts">
-            <!-- Generated prompts will appear here -->
-          </div>
-        </div>
-      </div>
-    </div>
-    <div id="promptSection" class="prompt-section">
-      <!-- Prompts will appear here -->
-    </div>
-    <div id="historyPanel" class="history-panel">
-      <h2>Prompt History</h2>
-      <button id="clearHistoryBtn" style="margin-bottom: 10px;">Clear History</button>
-      <div id="historyGroups">
-        <!-- History groups will appear here -->
-      </div>
-    </div>
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="script.js"></script>
+
+    <script src="script.js"></script>
 </body>
-</html> 
+</html>
