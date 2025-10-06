@@ -1429,29 +1429,34 @@ Keep your response concise and conversational.
 
 // Utility Functions
 async function callDeepSeekAPI(prompt) {
-    const response = await fetch('http://localhost:8080/api/deepseek', {
-    method: 'POST',
-    headers: {
-            'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-            api_key: DEEPSEEK_API_KEY,
-      model: 'deepseek-chat',
-      messages: [
-                { role: 'user', content: prompt }
-      ],
-            max_tokens: 1000,
-            temperature: 0.7
-    })
-  });
+    try {
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    { role: 'user', content: prompt }
+                ],
+                max_tokens: 1000,
+                temperature: 0.7
+            })
+        });
 
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`DeepSeek API error: ${response.status} - ${errorData.error || 'Unknown error'}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(`DeepSeek API error: ${response.status} - ${errorData.error || 'Unknown error'}`);
+        }
+        
+        const data = await response.json();
+        return data.choices[0].message.content;
+    } catch (error) {
+        console.error('API call failed:', error);
+        return "I apologize, but I'm having trouble connecting to the AI service. Please check your internet connection and try again.";
     }
-    
-    const data = await response.json();
-    return data.choices[0].message.content;
 }
 
 // Summary API Function for Cards
@@ -1468,21 +1473,21 @@ Problem Statement: ${data}`;
 Persona: ${data}`;
         }
             
-        const response = await fetch('http://localhost:8080/api/deepseek', {
-    method: 'POST',
-    headers: {
-                'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-                api_key: DEEPSEEK_API_KEY,
-      model: 'deepseek-chat',
-      messages: [
+        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
                     { role: 'user', content: prompt }
-      ],
+                ],
                 max_tokens: 150,
                 temperature: 0.2
-    })
-  });
+            })
+        });
         
         if (!response.ok) {
             const errorData = await response.json();
@@ -1493,7 +1498,8 @@ Persona: ${data}`;
         return responseData.choices[0].message.content;
     } catch (error) {
         console.error('Error calling Summary API:', error);
-        return data; // Return original data if summary fails
+        // Return a truncated version of the original data if API fails
+        return data.length > 100 ? data.substring(0, 100) + '...' : data;
     }
 }
 
