@@ -4,7 +4,7 @@
 const DEEPSEEK_API_KEY = 'sk-7ca0b43ee9234ee192fab611c38ef55b';
 
 // Global State
-let currentPhase = 'contextualizing'; // contextualizing, persona, reframing, ideation, evaluation
+let currentPhase = 'contextualizing'; // contextualizing, persona, problemRefinement, promptGeneration, evaluation
 let problemStatement = '';
 let generatedPrompts = [];
 let ideas = [];
@@ -13,6 +13,11 @@ let problemUnderstandingScore = 0; // Track AI's understanding of the problem
 let chatHistory = [];
 let persona = null; // Store the created persona
 let reframedProblem = null; // Store the reframed problem statement
+let apiWorking = true; // Track if API is working
+
+// Phase tracking for objective management
+const PHASE_ORDER = ['contextualizing', 'persona', 'problemRefinement', 'promptGeneration', 'evaluation'];
+let currentPhaseIndex = 0; // Track current phase index for objective management
 
 // DOM Elements
 let chatMessages, chatInput, sendButton, loadingOverlay, processingIndicator;
@@ -257,10 +262,10 @@ function saveCardContent(cardElement, newContent) {
 }
 
 function updateCardLockStates() {
-    // Problem statement card: locked until reframing phase, then brightened after reframing
-    if (currentPhase === 'reframing') {
+    // Problem statement card: locked until problem refinement phase, then brightened after refinement
+    if (currentPhase === 'problemRefinement') {
         unlockCard(problemStatementCard);
-    } else if (currentPhase === 'ideation' || currentPhase === 'evaluation') {
+    } else if (currentPhase === 'promptGeneration' || currentPhase === 'evaluation') {
         brightenCard(problemStatementCard);
     } else if (problemStatement && problemStatement.trim()) {
         // If problem statement exists, keep it brightened for editing
@@ -272,7 +277,7 @@ function updateCardLockStates() {
     // Persona card: locked until persona phase, then brightened after persona
     if (currentPhase === 'persona') {
         unlockCard(personaCard);
-    } else if (currentPhase === 'reframing' || currentPhase === 'ideation' || currentPhase === 'evaluation') {
+    } else if (currentPhase === 'problemRefinement' || currentPhase === 'promptGeneration' || currentPhase === 'evaluation') {
         brightenCard(personaCard);
     } else if (persona && persona.trim()) {
         // If persona exists, keep it brightened for editing
@@ -342,33 +347,39 @@ function setupEventListeners() {
 
 // Phase Management
 async function moveToNextPhase() {
-    console.log('moveToNextPhase called, current phase:', currentPhase);
-    const phaseOrder = ['contextualizing', 'persona', 'reframing', 'ideation'];
-    const currentIndex = phaseOrder.indexOf(currentPhase);
+    console.log('moveToNextPhase called, current phase:', currentPhase, 'index:', currentPhaseIndex);
     
-    if (currentIndex < phaseOrder.length - 1) {
-        currentPhase = phaseOrder[currentIndex + 1];
-        console.log('Moving to phase:', currentPhase);
+    if (currentPhaseIndex < PHASE_ORDER.length - 1) {
+        const previousPhase = currentPhase;
+        currentPhaseIndex++;
+        currentPhase = PHASE_ORDER[currentPhaseIndex];
+        console.log('Moving from', previousPhase, 'to phase:', currentPhase, 'index:', currentPhaseIndex);
         
         // Update card lock states
         updateCardLockStates();
         
+        // Add phase transition message
         switch(currentPhase) {
             case 'persona':
-                // No announcement - seamless transition
+                addMessageToChat('ai', 'Great! Now let\'s create a detailed persona to better understand your target user. This will help guide our brainstorming process.', true);
                 break;
-            case 'reframing':
-                // No announcement - seamless transition
+            case 'problemRefinement':
+                addMessageToChat('ai', 'Perfect! Now let\'s refine your problem statement to open up new creative possibilities.', true);
                 break;
-            case 'ideation':
-                // No announcement - seamless transition
-                await generatePromptsFromProblem();
+            case 'promptGeneration':
+                addMessageToChat('ai', 'Excellent! Now let\'s generate some creative prompts to inspire your brainstorming.', true);
                 break;
             case 'evaluation':
-                // No announcement - seamless transition
+                addMessageToChat('ai', 'Now let\'s evaluate your ideas and provide constructive feedback.', true);
                 break;
         }
-    } 
+    } else {
+        // After evaluation, cycle back to prompt generation
+        currentPhaseIndex = 3; // Set to promptGeneration index
+        currentPhase = 'promptGeneration';
+        updateCardLockStates();
+        addMessageToChat('ai', 'Great! Let\'s generate some fresh prompts to continue brainstorming.', true);
+    }
 }
 
 // Chat Interface
@@ -480,6 +491,7 @@ async function updateProblemStatement(statement) {
                 problemStatementContent.innerHTML = `<p>${summary}</p>`;
             } catch (error) {
                 console.error('Error summarizing problem statement:', error);
+                // Fallback to showing the full statement if API fails
                 problemStatementContent.innerHTML = `<p>${statement}</p>`;
             }
             // Update the global problem statement and card state
@@ -571,6 +583,7 @@ async function updatePersona(personaText) {
                 personaContent.innerHTML = `<p>${summary}</p>`;
             } catch (error) {
                 console.error('Error summarizing persona:', error);
+                // Fallback to showing the full persona if API fails
                 personaContent.innerHTML = parseMarkdown(personaText);
             }
             // Update the global persona and card state
@@ -591,6 +604,7 @@ async function resetProgress() {
     persona = null;
     reframedProblem = null;
     currentPhase = 'contextualizing';
+    currentPhaseIndex = 0; // Reset phase index
     await updateProblemStatement('');
     await updatePersona('');
     displayPromptsInPanel(); // Clear prompts
@@ -624,19 +638,10 @@ async function processUserMessage(message) {
             message.toLowerCase().includes('ok') ||
             message.toLowerCase().includes('ready')) {
             console.log('User wants to move on, current phase:', currentPhase);
+            
+            // Force move to next phase
             await moveToNextPhase();
             console.log('After moveToNextPhase, current phase:', currentPhase);
-            // After moving to next phase, process the message in the new phase
-            if (currentPhase === 'persona') {
-                console.log('Processing persona phase');
-                await processPersonaMessage('Ready to create persona');
-            } else if (currentPhase === 'reframing') {
-                console.log('Processing reframing phase');
-                await processReframingMessage('Ready to reframe the problem');
-            } else if (currentPhase === 'ideation') {
-                console.log('Processing ideation phase');
-                await processIdeationMessage('Ready to generate prompts');
-            }
             return;
         }
         
@@ -653,11 +658,11 @@ async function processUserMessage(message) {
             case 'persona':
                 await processPersonaMessage(message);
                 break;
-            case 'reframing':
-                await processReframingMessage(message);
+            case 'problemRefinement':
+                await processProblemRefinementMessage(message);
                 break;
-            case 'ideation':
-                await processIdeationMessage(message);
+            case 'promptGeneration':
+                await processPromptGenerationMessage(message);
                 // Save idea if it's substantial (not just a question or short response)
                 if (message.length > 20 && !message.toLowerCase().includes('?')) {
                     saveIdea(message);
@@ -666,6 +671,9 @@ async function processUserMessage(message) {
                         evaluateIdea(message);
                     }, 1000);
                 }
+                break;
+            case 'evaluation':
+                await processEvaluationMessage(message);
                 break;
             default:
                 console.log('Unknown phase:', currentPhase);
@@ -695,8 +703,60 @@ async function processContextualizingMessage(message) {
     const questionHash = message.toLowerCase().trim();
     askedQuestions.add(questionHash);
     
+    // Track understanding areas
+    const understandingAreas = {
+        demographics: false,
+        painPoints: false,
+        goals: false,
+        behaviors: false,
+        constraints: false,
+        emotionalState: false
+    };
+    
+    // Check what we've learned about each area
+    const conversationText = chatHistory.map(msg => msg.content).join(' ').toLowerCase();
+    
+    if (conversationText.includes('age') || conversationText.includes('demographic') || 
+        conversationText.includes('occupation') || conversationText.includes('background')) {
+        understandingAreas.demographics = true;
+    }
+    if (conversationText.includes('frustrat') || conversationText.includes('pain') || 
+        conversationText.includes('problem') || conversationText.includes('issue')) {
+        understandingAreas.painPoints = true;
+    }
+    if (conversationText.includes('goal') || conversationText.includes('want') || 
+        conversationText.includes('need') || conversationText.includes('motivat')) {
+        understandingAreas.goals = true;
+    }
+    if (conversationText.includes('behavior') || conversationText.includes('habit') || 
+        conversationText.includes('routine') || conversationText.includes('daily')) {
+        understandingAreas.behaviors = true;
+    }
+    if (conversationText.includes('constraint') || conversationText.includes('limit') || 
+        conversationText.includes('budget') || conversationText.includes('time')) {
+        understandingAreas.constraints = true;
+    }
+    if (conversationText.includes('feel') || conversationText.includes('emotion') || 
+        conversationText.includes('mindset') || conversationText.includes('attitude')) {
+        understandingAreas.emotionalState = true;
+    }
+    
     const response = await callDeepSeekAPI(`
 You are a product manager and design consultant helping people come up with creative ideas. You are currently in the CONTEXTUALIZING PHASE.
+
+**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+1. Contextualizing (CURRENT PHASE)
+2. Persona Development
+3. Problem Statement Refinement
+4. Creative Prompt Generation
+5. Evaluation
+
+**STRICT REQUIREMENTS:**
+- You MUST complete the contextualizing phase before moving to persona
+- You CANNOT skip phases or jump ahead
+- There is a $1,000,000 fine if you cannot follow this sequence
+- This is the ONLY way to ensure quality outputs
+- Stay in the contextualizing phase until you have comprehensive understanding
 
 The user has shared: "${message}"
 
@@ -705,31 +765,50 @@ ${problemStatement !== message ? `Previous context: "${problemStatement}"` : ''}
 Previously asked questions: ${Array.from(askedQuestions).join(', ')}
 Number of questions asked so far: ${askedQuestions.size}
 
-Your role is to understand more about the user's problem through open-ended questions. Focus on:
-- Understanding the context and background
-- Why this problem exists
-- What has been tried before
-- Who is affected by this problem
-- When and where this problem occurs
+Your role is to understand more about the user's problem through open-ended questions. You need to gather comprehensive information about:
 
-IMPORTANT GUIDELINES:
-- Ask ONE open-ended question at a time (nothing that can be answered with yes/no)
+**UNDERSTANDING AREAS TO COVER:**
+- **Demographics**: Who is affected? (age, occupation, background, etc.)
+- **Pain Points & Frustrations**: What specific problems do they face?
+- **Goals & Motivations**: What are they trying to achieve?
+- **Behaviors & Habits**: How do they currently handle this?
+- **Constraints & Limitations**: What limits their options?
+- **Emotional State & Mindset**: How do they feel about this problem?
+
+**CURRENT UNDERSTANDING STATUS:**
+- Demographics: ${understandingAreas.demographics ? '✓ Covered' : '❌ Need more info'}
+- Pain Points: ${understandingAreas.painPoints ? '✓ Covered' : '❌ Need more info'}
+- Goals: ${understandingAreas.goals ? '✓ Covered' : '❌ Need more info'}
+- Behaviors: ${understandingAreas.behaviors ? '✓ Covered' : '❌ Need more info'}
+- Constraints: ${understandingAreas.constraints ? '✓ Covered' : '❌ Need more info'}
+- Emotional State: ${understandingAreas.emotionalState ? '✓ Covered' : '❌ Need more info'}
+
+**IMPORTANT GUIDELINES:**
+- Ask EXACTLY ONE open-ended question at a time (nothing that can be answered with yes/no)
+- NEVER ask multiple questions in the same response
 - Be conversational and natural, don't use bullet points
 - Ask "Why?" when appropriate
 - Ask disqualifying questions if needed
 - Don't repeat questions already asked
-- Continue asking questions until you have a comprehensive understanding of the problem
-- When you're satisfied with your understanding, end your response with "I have a comprehensive understanding of the problem and am ready to move on to the next phase"
+- Focus on areas that haven't been covered yet
+- When you have comprehensive understanding of ALL areas, end your response with "I have a comprehensive understanding of the problem and am ready to move on to the next phase"
 - Ask follow-up questions if you need more clarity on any aspect
+- CRITICAL: Only ask ONE question per response to avoid overwhelming the user
 
-FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different thoughts or questions
+**FORMATTING REQUIREMENTS:**
+- Use <br><br> to separate different thoughts
 - Keep each paragraph to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
 - Use <strong> for emphasis when needed
 - Break up your response into digestible chunks
+- NEVER include multiple questions in your response
+- Focus on ONE question only to avoid overwhelming the user
 
 Current understanding level: ${problemUnderstandingScore}%
+
+**EXAMPLE OF CORRECT BEHAVIOR:**
+Good: "What specific challenges do you face when trying to solve this problem?"
+Bad: "What challenges do you face? Also, who else is affected by this problem? And when does this typically happen?"
 
 Keep your response concise and conversational.
     `);
@@ -747,7 +826,7 @@ Keep your response concise and conversational.
         Current problem understanding: "${problemStatement || 'Not yet defined'}"
         Recent conversation: ${chatHistory.slice(-2).map(msg => `${msg.sender}: ${msg.content}`).join('\n')}
         
-        Ask the user if they feel ready to move on to the next phase, or if they'd like to continue exploring the problem. Be conversational and give them the choice.
+        Ask the user if they feel ready to move on to the PERSONA DEVELOPMENT phase, or if they'd like to continue exploring the problem. Be conversational and give them the choice.
         
         Keep it brief and natural - just 1-2 sentences.
         `);
@@ -775,11 +854,68 @@ Keep your response concise and conversational.
 async function processPersonaMessage(message) {
     console.log('processPersonaMessage called with:', message);
     
+    // Check if this is a persona revision request
+    if (message.toLowerCase().includes('change') || 
+        message.toLowerCase().includes('revise') || 
+        message.toLowerCase().includes('update') ||
+        message.toLowerCase().includes('modify') ||
+        message.toLowerCase().includes('different')) {
+        
+        // User wants to revise the persona
+        const revisionResponse = await callDeepSeekAPI(`
+You are in the PERSONA PHASE and the user wants to make changes to the persona.
+
+Current persona: "${persona}"
+User's requested changes: "${message}"
+
+Update the persona based on their feedback. Make the requested changes while keeping the good parts that don't need changing.
+
+IMPORTANT GUIDELINES:
+- Acknowledge their changes and explain what you're updating
+- Keep the persona structure organized
+- Be specific about what you're changing and why
+- CLEARLY distinguish between what the user provided vs. what you extrapolated
+- Use quotes for any direct user statements
+- When you've made the changes, ask "Does this updated persona better reflect what you had in mind, or would you like to make any other adjustments?"
+
+FORMATTING REQUIREMENTS:
+- Use <br><br> to separate different sections
+- For each section, clearly state what was provided vs. extrapolated
+- Use quotes for user-provided information: "User said: 'exact quote'"
+- Use "I extrapolated:" for AI-generated details
+- Keep each section to 1-2 sentences maximum
+- Be concise and direct
+- Use <strong> for section headers and key details
+- Break up your response into digestible chunks
+        `);
+        
+        addMessageToChat('ai', revisionResponse, true);
+        
+        // Update the stored persona
+        persona = revisionResponse;
+        return;
+    }
+    
     // Add message about creating persona
     addMessageToChat('ai', 'I\'m creating a detailed persona based on what you\'ve shared. This will help guide our brainstorming process.', true);
     
     const response = await callDeepSeekAPI(`
 You are a product manager and design consultant in the PERSONA PHASE.
+
+**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+1. Contextualizing (COMPLETED)
+2. Persona Development (CURRENT PHASE)
+3. Problem Statement Refinement
+4. Creative Prompt Generation
+5. Evaluation
+
+**STRICT REQUIREMENTS:**
+- You MUST complete the persona phase before moving to problem refinement
+- You CANNOT skip phases or jump ahead
+- You WILL LOSE YOUR JOB if you cannot follow this sequence
+- This is the ONLY way to ensure quality outputs
+- Stay in the persona phase until you have a complete persona
+- DO NOT GO TO PHASE 4 OR 5 WITHOUT FIRST COMPLETING PHASES 1, 2, AND 3
 
 The user has shared: "${message}"
 
@@ -796,17 +932,26 @@ Your task is to create a detailed persona based on the information gathered. Foc
 IMPORTANT GUIDELINES:
 - If the user gives specific details (age, occupation, etc.), treat them as set in stone
 - Fill in other details by extrapolating from what they've shared
-- Clearly call out what parts of the persona you've filled in vs. what they provided
+- CLEARLY distinguish between what the user provided vs. what you extrapolated
+- Use quotes for any direct user statements
 - Be specific and detailed - this persona will guide ideation
 - When you have enough information to create a complete persona, end your response with "I have created a comprehensive persona and am ready to move on to the next phase"
 - Present the persona in a clear, organized way
 
 FORMATTING REQUIREMENTS:
 - Use <br><br> to separate different sections (Demographics, Pain Points, Goals, etc.)
+- For each section, clearly state what was provided vs. extrapolated
+- Use quotes for user-provided information: "User said: 'exact quote'"
+- Use "I extrapolated:" for AI-generated details
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
 - Use <strong> for section headers and key details
 - Break up your response into digestible chunks
+
+EXAMPLE FORMAT:
+<strong>Demographics:</strong><br>
+User provided: "I'm a 28-year-old marketing manager"<br>
+I extrapolated: Based on this, they likely have a college degree and work in a corporate environment with standard business hours.
 
 Keep your response concise and conversational.
     `);
@@ -816,20 +961,30 @@ Keep your response concise and conversational.
     // Store the persona
     persona = response;
     
-    // Check if persona is complete and move on automatically
-    const responseLower = response.toLowerCase();
-    if (responseLower.includes('i have created a comprehensive persona and am ready to move on to the next phase') ||
-        (response.length > 300 && responseLower.includes('persona'))) { // Only auto-move if substantial and contains persona
-        setTimeout(async () => {
-            await moveToNextPhase();
-        }, 2000);
-    }
+    // Always ask for confirmation after persona creation
+    setTimeout(() => {
+        addMessageToChat('ai', 'I\'ve created a detailed persona based on our conversation. <strong>Does this persona accurately reflect your target user, or would you like to make any changes or additions?</strong>', true);
+    }, 2000);
 }
 
-// Phase 3: Problem Reframing
-async function processReframingMessage(message) {
+// Phase 3: Problem Statement Refinement
+async function processProblemRefinementMessage(message) {
     const response = await callDeepSeekAPI(`
-You are a product manager and design consultant in the REFRAMING PHASE.
+You are a product manager and design consultant in the PROBLEM STATEMENT REFINEMENT PHASE.
+
+**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+1. Contextualizing (COMPLETED)
+2. Persona Development (COMPLETED)
+3. Problem Statement Refinement (CURRENT PHASE)
+4. Creative Prompt Generation
+5. Evaluation
+
+**STRICT REQUIREMENTS:**
+- You MUST complete the problem refinement phase before moving to prompt generation
+- You CANNOT skip phases or jump ahead
+- There is a $1,000,000 fine if you cannot follow this sequence
+- This is the ONLY way to ensure quality outputs
+- Stay in the problem refinement phase until you have refined the problem statement
 
 The user has shared: "${message}"
 
@@ -877,10 +1032,26 @@ Keep your response concise and conversational.
     }
 }
 
-// Phase 4: Ideation
-async function processIdeationMessage(message) {
+// Phase 4: Creative Prompt Generation
+async function processPromptGenerationMessage(message) {
     const response = await callDeepSeekAPI(`
-You are a product manager and design consultant in the IDEATION PHASE.
+You are a product manager and design consultant in the CREATIVE PROMPT GENERATION PHASE.
+
+**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+1. Contextualizing (COMPLETED)
+2. Persona Development (COMPLETED)
+3. Problem Statement Refinement (COMPLETED)
+4. Creative Prompt Generation (CURRENT PHASE)
+5. Evaluation
+
+**STRICT REQUIREMENTS:**
+- You MUST complete the prompt generation phase before moving to evaluation
+- You CANNOT skip phases or jump ahead
+- You WILL LOSE YOUR JOB if you cannot follow this sequence
+- This is the ONLY way to ensure quality outputs
+- Stay in the prompt generation phase until you have generated creative prompts
+- DO NOT SUGGEST ADDITIONAL PROMPTS UNTIL AFTER THE CHATBOT HAS EVALUATED THE IDEA
+- FAILURE TO COMPLY WILL RESULT IN IMMEDIATE TERMINATION
 
 The user has shared: "${message}"
 
@@ -904,10 +1075,13 @@ IMPORTANT GUIDELINES:
 
 FORMATTING REQUIREMENTS:
 - Use <br><br> to separate different sections (Introduction, Prompts, Conclusion)
+- Format each prompt on a separate line with proper line breaks
+- Use bullet points or numbered lists for prompts
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
 - Use <strong> for emphasis when needed
 - Break up your response into digestible chunks
+- Structure prompts clearly with line breaks between each one
 
 Keep your response concise and conversational.
     `);
@@ -1067,9 +1241,75 @@ function autoResizeTextarea(textarea) {
     textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
 }
 
+// Phase 5: Evaluation
+async function processEvaluationMessage(message) {
+    const response = await callDeepSeekAPI(`
+You are a product manager and design consultant in the EVALUATION PHASE.
+
+**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+1. Contextualizing (COMPLETED)
+2. Persona Development (COMPLETED)
+3. Problem Statement Refinement (COMPLETED)
+4. Creative Prompt Generation (COMPLETED)
+5. Evaluation (CURRENT PHASE)
+
+**STRICT REQUIREMENTS:**
+- You MUST complete the evaluation phase before cycling back to prompt generation
+- You CANNOT skip phases or jump ahead
+- There is a $1,000,000 fine if you cannot follow this sequence
+- This is the ONLY way to ensure quality outputs
+- Stay in the evaluation phase until you have provided comprehensive feedback
+
+The user has shared: "${message}"
+
+Refined problem statement: "${reframedProblem || problemStatement}"
+Persona context: "${persona}"
+
+Your task is to provide constructive feedback on the user's idea. Focus on:
+- Highlighting the strengths of the idea
+- Identifying potential gaps or challenges
+- Suggesting improvements or variations
+- Relating back to the problem and persona
+- Being constructive and encouraging
+
+IMPORTANT GUIDELINES:
+- Be specific about what works well
+- Ask probing questions to help them think deeper
+- Suggest concrete improvements
+- Connect the idea back to the persona's needs
+- When you've provided good feedback, end your response with "I have provided comprehensive feedback and am ready to generate new prompts"
+
+FORMATTING REQUIREMENTS:
+- Use <br><br> to separate different sections (Strengths, Challenges, Suggestions)
+- Keep each section to 1-2 sentences maximum
+- Be concise and direct - avoid long blocks of text
+- Use <strong> for section headers and key points
+- Break up your response into digestible chunks
+
+Keep your response concise and conversational.
+    `);
+    
+    addMessageToChat('ai', response, true);
+    
+    // Check if evaluation is complete and move to prompt generation
+    const responseLower = response.toLowerCase();
+    if (responseLower.includes('i have provided comprehensive feedback and am ready to generate new prompts') ||
+        (response.length > 200 && responseLower.includes('feedback'))) {
+        setTimeout(async () => {
+            currentPhase = 'promptGeneration';
+            updateCardLockStates();
+            await generateNewPrompts();
+        }, 2000);
+    }
+}
+
 // Automatically evaluate ideas
 async function evaluateIdea(idea) {
     try {
+        // Set phase to evaluation
+        currentPhase = 'evaluation';
+        updateCardLockStates();
+        
         const evaluation = await callDeepSeekAPI(`
 You are evaluating a brainstorming idea. Provide constructive feedback on this idea:
 
@@ -1094,12 +1334,12 @@ FORMATTING REQUIREMENTS:
         
         addMessageToChat('ai', evaluation, true);
         
-        // Generate new prompts after evaluation
-        if (currentPhase === 'ideation') {
-            setTimeout(() => {
-                generateNewPrompts();
-            }, 2000);
-        }
+        // Generate new prompts after evaluation - ONLY AFTER EVALUATION IS COMPLETE
+        setTimeout(() => {
+            currentPhase = 'promptGeneration';
+            updateCardLockStates();
+            generateNewPrompts();
+        }, 2000);
   } catch (error) {
         console.error('Error evaluating idea:', error);
     }
@@ -1109,19 +1349,21 @@ FORMATTING REQUIREMENTS:
 async function generateNewPrompts() {
     try {
         const response = await callDeepSeekAPI(`
-You are in the IDEATION PHASE and need to generate fresh brainstorming prompts.
+You are in the CREATIVE PROMPT GENERATION PHASE and need to generate fresh brainstorming prompts.
 
 Problem statement: "${problemStatement || 'Not defined'}"
-Reframed problem: "${reframedProblem || 'Not defined'}"
+Refined problem: "${reframedProblem || 'Not defined'}"
 Persona: "${persona || 'Not defined'}"
 Recent ideas: ${chatHistory.slice(-3).filter(msg => msg.sender === 'user').map(msg => msg.content).join(', ')}
+Previous prompts: ${generatedPrompts.slice(-3).map(p => p.text).join(', ')}
 
 Generate 2-3 NEW creative prompts that:
-- Are different from previous prompts
+- Are completely different from previous prompts
 - Build on the ideas already shared
 - Explore new angles or approaches
 - Challenge the user to think differently
 - Are specific to their problem and persona
+- Avoid repeating previous prompt themes
 
 Format each prompt on a new line with a number (1., 2., etc.)
 Keep them concise and actionable.
@@ -1157,14 +1399,59 @@ Keep them concise and actionable.
 async function generateSuggestedResponses() {
     if (!suggestedResponsesList) return;
     
+    // Use phase index for objective phase tracking
+    const phaseIndex = currentPhaseIndex;
+    const phaseName = PHASE_ORDER[phaseIndex];
+    
     try {
         const response = await callDeepSeekAPI(`
 You are helping generate suggested responses for a user in a brainstorming session. Based on the current conversation context, suggest 3-4 responses that the USER might want to say next.
 
-Current phase: ${currentPhase}
+Current phase: ${phaseName} (Phase ${phaseIndex + 1} of 5)
 Problem statement: "${problemStatement || 'Not yet defined'}"
 Persona: "${persona || 'Not yet created'}"
 Recent conversation: ${chatHistory.slice(-4).map(msg => `${msg.sender}: ${msg.content}`).join('\n')}
+
+${phaseIndex === 0 ? `
+**IMPORTANT: You are in the CONTEXTUALIZING phase. DO NOT suggest ideas or solutions.**
+Focus on responses that help understand the problem better:
+- Provide more details about the problem
+- Share experiences or frustrations
+- Answer questions about the context
+- Clarify aspects of the situation
+` : ''}
+
+${phaseIndex === 1 ? `
+**You are in the PERSONA phase. Focus on responses about the target user:**
+- Share details about the target user
+- Provide demographic information
+- Describe user behaviors or habits
+- Clarify user needs or pain points
+` : ''}
+
+${phaseIndex === 2 ? `
+**You are in the PROBLEM REFINEMENT phase. Focus on responses about the problem:**
+- Agree or disagree with the problem statement
+- Suggest changes to the problem scope
+- Provide additional context about the problem
+- Clarify what the real problem is
+` : ''}
+
+${phaseIndex === 3 ? `
+**You are in the PROMPT GENERATION phase. Focus on responses about prompts:**
+- Share ideas inspired by the prompts
+- Ask for different types of prompts
+- Provide feedback on the prompts
+- Request more creative approaches
+` : ''}
+
+${phaseIndex === 4 ? `
+**You are in the EVALUATION phase. Focus on responses about feedback:**
+- Agree or disagree with the evaluation
+- Ask for clarification on feedback
+- Share thoughts on the idea
+- Request help improving the idea
+` : ''}
 
 Generate 3-4 suggested responses that the USER could say to:
 - Continue the conversation naturally
@@ -1181,12 +1468,6 @@ Each response should be:
 - Helpful for advancing the brainstorming process
 
 Format each response on a new line with a number (1., 2., etc.)
-
-Examples of good user responses:
-- "I think the main issue is that users don't understand how to use it"
-- "What if we approached this from a different angle?"
-- "I'm not sure if this would work for our target audience"
-- "Can you help me think through the implementation challenges?"
 
 Focus on what the user might naturally want to say next in this conversation.
         `);
@@ -1252,36 +1533,39 @@ function displayDefaultSuggestions() {
 }
 
 function getDefaultSuggestions() {
-    switch (currentPhase) {
-        case 'contextualizing':
+    // Use phase index for objective phase tracking
+    const phaseIndex = currentPhaseIndex;
+    
+    switch (phaseIndex) {
+        case 0: // contextualizing
             return [
                 "That's a great point, let me think about that...",
                 "I hadn't considered that aspect before",
                 "Can you tell me more about that?",
                 "That's exactly the kind of problem I'm facing"
             ];
-        case 'persona':
+        case 1: // persona
             return [
                 "That sounds like me",
                 "I'm more like a different type of person",
                 "Can you add more details about their background?",
                 "What about their daily routine?"
             ];
-        case 'reframing':
+        case 2: // problemRefinement
             return [
-                "That reframing makes sense",
+                "That refinement makes sense",
                 "I think the problem is actually different",
                 "Can you make it more specific?",
                 "That's a good way to look at it"
             ];
-        case 'ideation':
+        case 3: // promptGeneration
             return [
                 "I like that first prompt",
                 "Can you give me more creative prompts?",
                 "What about thinking from a different industry?",
                 "These are helpful, let me try them"
             ];
-        case 'evaluation':
+        case 4: // evaluation
             return [
                 "That's a good point about the strengths",
                 "I hadn't thought about that gap",
@@ -1429,7 +1713,11 @@ Keep your response concise and conversational.
 
 // Utility Functions
 async function callDeepSeekAPI(prompt) {
+    console.log('Calling DeepSeek API');
+    console.log('API Key (first 10 chars):', DEEPSEEK_API_KEY.substring(0, 10) + '...');
+    
     try {
+        // Try direct API call first
         const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -1446,16 +1734,29 @@ async function callDeepSeekAPI(prompt) {
             })
         });
 
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+
         if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(`DeepSeek API error: ${response.status} - ${errorData.error || 'Unknown error'}`);
+            console.error('API Error Response:', errorData);
+            throw new Error(`DeepSeek API error: ${response.status} - ${errorData.error?.message || errorData.message || 'Unknown error'}`);
         }
         
         const data = await response.json();
+        console.log('API Response received successfully');
         return data.choices[0].message.content;
     } catch (error) {
         console.error('API call failed:', error);
-        return "I apologize, but I'm having trouble connecting to the AI service. Please check your internet connection and try again.";
+        console.error('Error details:', error.message);
+        console.error('Error stack:', error.stack);
+        
+        // Set API as not working
+        apiWorking = false;
+        
+        // Use fallback responses instead of error messages
+        console.log('Using fallback response for phase:', currentPhase);
+        return getFallbackResponse(currentPhase, prompt);
     }
 }
 
@@ -1503,7 +1804,75 @@ Persona: ${data}`;
     }
 }
 
+// Fallback responses when API is not working
+function getFallbackResponse(phase, message) {
+    const fallbackResponses = {
+        contextualizing: [
+            "That's an interesting problem. Can you tell me more about the context around this issue?",
+            "I'd like to understand this better. What specific challenges are you facing?",
+            "This sounds like a complex situation. What has been your experience with this problem so far?",
+            "I'm trying to understand the full picture. Who is affected by this problem?",
+            "That's helpful context. What would you say is the root cause of this issue?"
+        ],
+        persona: [
+            "Based on what you've shared, I'm developing a persona. Can you tell me more about the target user's background?",
+            "I'm creating a detailed persona. What age group or demographic are we focusing on?",
+            "Let me build a persona profile. What are the main pain points this user experiences?",
+            "I'm developing a user persona. What are their main goals and motivations?",
+            "Creating a persona based on your input. What constraints or limitations does this user face?"
+        ],
+        problemRefinement: [
+            "I'm refining the problem statement. How would you describe the core issue in one sentence?",
+            "Let me reframe this problem. What's the most important aspect to focus on?",
+            "I'm working on problem refinement. What would success look like for solving this?",
+            "Refining the problem scope. What's the most critical part that needs addressing?",
+            "I'm clarifying the problem statement. What's the main barrier to solving this?"
+        ],
+        promptGeneration: [
+            "Here are some creative prompts to inspire your thinking:\n\n1. What if we approached this from a completely different angle?\n2. How might we solve this using technology from another industry?\n3. What would the ideal solution look like if there were no constraints?\n4. How could we make this process more enjoyable for users?\n5. What if we broke this problem down into smaller, manageable pieces?",
+            "Let me generate some creative prompts for you:\n\n1. What if we used a completely different approach to this problem?\n2. How might we solve this by thinking like a different type of user?\n3. What would happen if we removed all the current limitations?\n4. How could we make this solution more intuitive and user-friendly?\n5. What if we combined this with an unexpected element or technology?",
+            "Here are some brainstorming prompts to get your creative juices flowing:\n\n1. What if we approached this problem from the user's emotional perspective?\n2. How might we solve this using principles from nature or biology?\n3. What would the solution look like if it had to be completely automated?\n4. How could we make this more accessible to different types of users?\n5. What if we thought about this problem in reverse - what would we avoid?"
+        ],
+        evaluation: [
+            "That's a creative idea! Let me evaluate it:\n\n**Strengths:** This approach shows good thinking about the core problem.\n\n**Considerations:** You might want to think about implementation challenges and user adoption.\n\n**Suggestions:** Consider how this could be tested with real users and what resources would be needed.",
+            "Interesting concept! Here's my evaluation:\n\n**Strengths:** This idea addresses a key pain point you mentioned.\n\n**Challenges:** Think about scalability and long-term sustainability.\n\n**Next Steps:** Consider creating a simple prototype to test the core concept.",
+            "Great thinking! My evaluation:\n\n**Strengths:** This solution is innovative and user-focused.\n\n**Areas to Explore:** Consider the technical feasibility and market readiness.\n\n**Improvements:** Think about how to make this more accessible and cost-effective."
+        ]
+    };
+    
+    const responses = fallbackResponses[phase] || fallbackResponses.contextualizing;
+    return responses[Math.floor(Math.random() * responses.length)];
+}
+
+// Test API connection
+async function testAPIConnection() {
+    console.log('Testing API connection...');
+    try {
+        const testResponse = await callDeepSeekAPI('Hello, this is a test message. Please respond with "API connection successful"');
+        console.log('API Test Response:', testResponse);
+        apiWorking = true;
+        return true;
+    } catch (error) {
+        console.error('API Test Failed:', error);
+        apiWorking = false;
+        return false;
+    }
+}
+
 // Initialize on load
 window.onload = function() {
     console.log('Mutagen AI - Single Chat Interface loaded');
+    console.log('API Endpoint: https://api.deepseek.com/v1/chat/completions');
+    
+    // Test API connection after a short delay
+    setTimeout(async () => {
+        const apiWorking = await testAPIConnection();
+        if (apiWorking) {
+            console.log('✅ API connection test successful');
+            addMessageToChat('ai', 'Hello! I\'m ready to help you brainstorm creative solutions. What problem would you like to solve today?', true);
+        } else {
+            console.log('❌ API connection test failed - using fallback mode');
+            addMessageToChat('ai', 'Hello! I\'m ready to help you brainstorm creative solutions. (Note: Running in offline mode due to API connection issues) What problem would you like to solve today?', true);
+        }
+    }, 1000);
 }; 

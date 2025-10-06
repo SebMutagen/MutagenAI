@@ -1,99 +1,68 @@
-# Mutagen AI - Three-Step Chat Interface
+# Mutagen.AI - AI-Powered Brainstorming Assistant
 
-## Overview
+A web-based brainstorming tool that helps you solve problems through structured creative thinking.
 
-Mutagen AI has been completely redesigned as a three-step chat-based brainstorming interface that guides users through problem definition, prompt generation, and idea review.
+## Features
 
-## Key Changes
+- **5-Phase Brainstorming Process**: Contextualizing → Persona → Problem Refinement → Creative Prompts → Evaluation
+- **Responsive Design**: Works on desktop, laptop, and mobile devices
+- **AI-Powered**: Uses DeepSeek API for intelligent responses (with offline fallback)
+- **Interactive Chat**: Natural conversation flow with suggested responses
+- **Idea Management**: Save and organize your brainstorming ideas
+- **Phase Tracking**: Clear progression through each brainstorming phase
 
-### 1. API Migration
-- **Replaced DeepSeek API with Claude API** throughout the entire codebase
-- Updated all API calls to use Anthropic's Claude 3 Sonnet model
-- Maintained backward compatibility with existing functionality
+## How to Use
 
-### 2. New Three-Step Interface
+1. **Open the application** by opening `index.html` in your web browser
+2. **Start with a problem** - describe what you want to solve
+3. **Follow the 5-phase process**:
+   - **Contextualizing**: AI asks questions to understand your problem
+   - **Persona**: AI creates a detailed user persona
+   - **Problem Refinement**: AI reframes and clarifies the problem
+   - **Creative Prompts**: AI generates brainstorming prompts
+   - **Evaluation**: AI evaluates your ideas and suggests improvements
 
-#### Step 1: Problem Statement
-- AI acts as a user researcher
-- Asks clarifying questions to refine the problem statement
-- Focuses on understanding user persona, goals, constraints, and root causes
-- Conversational approach with follow-up questions
+## Technical Details
 
-#### Step 2: Prompt Generation
-- Generates creative prompts based on the refined problem statement
-- Chat interface allows users to share ideas for prompt creation
-- AI helps refine ideas into actionable prompts
-- Prompts are displayed in a clean card format
-
-#### Step 3: Ideas Review
-- Users can share their ideas for feedback
-- AI provides constructive criticism and challenges assumptions
-- Suggests alternative approaches and different angles
-- Helps users think more deeply about implementation
-
-### 3. Modern UI Design
-- **Glassmorphism design** with translucent elements and backdrop blur
-- Gradient background with purple-to-cyan color scheme
-- Responsive design that works on desktop and mobile
-- Smooth animations and transitions
-- Clean, modern typography using Inter font
-
-### 4. Chat Interface Features
-- Real-time messaging with AI
-- Auto-resizing text input
-- Loading states and smooth animations
-- Message history and context preservation
-- Step navigation with visual indicators
-
-## Technical Implementation
-
-### Frontend
-- Pure HTML5, CSS3, and JavaScript (no frameworks)
-- CSS Grid and Flexbox for layout
-- CSS Custom Properties for theming
-- Responsive design with mobile-first approach
-
-### Backend Integration
-- Anthropic Claude API for all AI interactions
-- RESTful API calls with proper error handling
-- State management for multi-step workflow
-- Local storage for session persistence
-
-### File Structure
-```
-Mutagen/
-├── index.html          # Main application HTML
-├── script.js           # JavaScript application logic
-├── styles.css          # CSS styles and animations
-├── README.md           # This documentation
-└── [legacy files]      # Original files preserved
-```
-
-## Usage
-
-1. **Start the application**: Open `index.html` in a web browser or serve via HTTP server
-2. **Step 1**: Describe your problem and answer AI's clarifying questions
-3. **Step 2**: Generate creative prompts and refine ideas through chat
-4. **Step 3**: Share ideas and get AI feedback and challenges
+- **Pure HTML/CSS/JavaScript**: No server required, runs entirely in the browser
+- **DeepSeek API Integration**: For AI-powered responses
+- **Offline Fallback**: Works even when API is unavailable
+- **GitHub Pages Ready**: Can be hosted on GitHub Pages
 
 ## API Configuration
 
-Update the `CLAUDE_API_KEY` constant in `script.js` with your Anthropic API key:
+The application uses the DeepSeek API for AI responses. If you encounter API issues:
 
-```javascript
-const CLAUDE_API_KEY = 'your-api-key-here';
+1. Check your internet connection
+2. Verify the API key is valid
+3. The application will automatically fall back to offline mode
+
+## File Structure
+
+```
+├── index.html          # Main application file
+├── script.js           # JavaScript logic and AI integration
+├── styles.css          # Responsive styling
+├── test-api.html       # API connection test page
+└── README.md           # This file
 ```
 
 ## Browser Compatibility
 
-- Modern browsers with ES6+ support
-- CSS Grid and Flexbox support required
-- Backdrop-filter support recommended for full glassmorphism effect
+- Chrome (recommended)
+- Firefox
+- Safari
+- Edge
 
-## Future Enhancements
+## Troubleshooting
 
-- User authentication and session management
-- Export functionality for prompts and ideas
-- Collaborative features for team brainstorming
-- Integration with external design tools
-- Advanced AI models and customization options
+If the application doesn't work:
+
+1. **Check Console**: Open Developer Tools (F12) and look for error messages
+2. **Test API**: Open `test-api.html` to test API connectivity
+3. **Offline Mode**: The app will work in offline mode with basic responses
+4. **Clear Cache**: Try refreshing with Ctrl+F5 (or Cmd+Shift+R on Mac)
+
+## License
+
+This project is open source and available under the MIT License.

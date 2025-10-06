@@ -19,12 +19,12 @@ class CORSRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        if self.path == '/api/claude':
-            self.handle_claude_request()
+        if self.path == '/api/deepseek':
+            self.handle_deepseek_request()
         else:
             self.send_error(404)
 
-    def handle_claude_request(self):
+    def handle_deepseek_request(self):
         try:
             # Read the request body
             content_length = int(self.headers['Content-Length'])
@@ -33,30 +33,29 @@ class CORSRequestHandler(BaseHTTPRequestHandler):
             # Parse the JSON data
             request_data = json.loads(post_data.decode('utf-8'))
             
-            # Prepare the request to Claude API
-            claude_url = 'https://api.anthropic.com/v1/messages'
-            claude_headers = {
+            # Prepare the request to DeepSeek API
+            deepseek_url = 'https://api.deepseek.com/v1/chat/completions'
+            deepseek_headers = {
                 'Content-Type': 'application/json',
-                'x-api-key': request_data.get('api_key'),
-                'anthropic-version': '2023-06-01'
+                'Authorization': f"Bearer {request_data.get('api_key')}"
             }
             
             # Create the request
-            req = urllib.request.Request(claude_url, data=post_data, headers=claude_headers)
+            req = urllib.request.Request(deepseek_url, data=post_data, headers=deepseek_headers)
             
-            # Make the request to Claude API
+            # Make the request to DeepSeek API
             with urllib.request.urlopen(req) as response:
-                claude_data = response.read()
+                deepseek_data = response.read()
                 
                 # Send the response back to the client
                 self.send_response(200)
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
-                self.wfile.write(claude_data)
+                self.wfile.write(deepseek_data)
                 
         except urllib.error.HTTPError as e:
-            # Handle HTTP errors from Claude API
+            # Handle HTTP errors from DeepSeek API
             error_data = e.read().decode('utf-8')
             self.send_response(e.code)
             self.send_header('Access-Control-Allow-Origin', '*')
@@ -81,10 +80,13 @@ class CORSRequestHandler(BaseHTTPRequestHandler):
         if self.path == '/' or self.path == '/index.html':
             self.path = '/index.html'
         
+        # Add CORS headers for all responses
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        
         try:
             with open(self.path[1:], 'rb') as f:
                 content = f.read()
-                self.send_response(200)
                 if self.path.endswith('.html'):
                     self.send_header('Content-Type', 'text/html')
                 elif self.path.endswith('.css'):
@@ -98,7 +100,12 @@ class CORSRequestHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(content)
         except FileNotFoundError:
-            self.send_error(404)
+            self.send_response(404)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            error_html = b'<h1>404 - File Not Found</h1><p>Please make sure you are accessing the correct URL.</p>'
+            self.wfile.write(error_html)
 
 if __name__ == '__main__':
     server = HTTPServer(('localhost', 8080), CORSRequestHandler)
