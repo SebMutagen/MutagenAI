@@ -1827,7 +1827,19 @@ async function callDeepSeekAPI(prompt) {
     }
     
     try {
+        // First, test if the URL is reachable with a simple GET request
+        console.log('Testing Worker connectivity...');
+        try {
+            const testResponse = await fetch(proxyPath, { method: 'GET' });
+            const testData = await testResponse.json();
+            console.log('✅ Worker is reachable:', testData);
+        } catch (testError) {
+            console.error('❌ Worker connectivity test failed:', testError);
+            throw new Error(`Cannot reach Worker at ${proxyPath}. Please verify the URL is correct and the Worker is deployed.`);
+        }
+        
         // Route through local proxy to avoid CORS and keep key server-side
+        console.log('Sending POST request to:', proxyPath);
         const response = await fetch(proxyPath, {
             method: 'POST',
             headers: {
@@ -1864,13 +1876,20 @@ async function callDeepSeekAPI(prompt) {
         
         // Check for DNS/network errors
         if (error.message.includes('ERR_NAME_NOT_RESOLVED') || error.message.includes('Failed to fetch')) {
-            console.error('❌ DNS Error: The Worker URL cannot be resolved.');
-            console.error('Please verify:');
-            console.error('1. The Worker is deployed in Cloudflare Dashboard');
-            console.error('2. The Worker URL is correct (check Workers & Pages → Your Worker → Copy URL)');
-            console.error('3. The URL format should be: https://<worker-name>.<subdomain>.workers.dev');
-            console.error('Current URL:', proxyPath);
-            console.error('Window variable:', window.DEEPSEEK_PROXY_URL);
+            console.error('❌ DNS/Network Error: The Worker URL cannot be resolved.');
+            console.error('Current URL being used:', proxyPath);
+            console.error('Window variable value:', window.DEEPSEEK_PROXY_URL);
+            console.error('');
+            console.error('🔍 Troubleshooting steps:');
+            console.error('1. Open this URL directly in your browser:', proxyPath);
+            console.error('2. If it works in browser but not in code, check browser console for CORS errors');
+            console.error('3. Verify the exact URL in Cloudflare Dashboard → Workers & Pages → Your Worker');
+            console.error('4. Try copying the URL directly from Cloudflare and paste it in index.html line 218');
+            console.error('5. Check if you have any browser extensions blocking requests');
+            console.error('6. Try a different network (mobile hotspot) to rule out DNS issues');
+            console.error('');
+            console.error('💡 Quick test: Open browser console and run:');
+            console.error(`   fetch('${proxyPath}').then(r => r.json()).then(console.log).catch(console.error)`);
         }
         
         console.error('Error stack:', error.stack);
