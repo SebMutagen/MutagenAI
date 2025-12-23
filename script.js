@@ -1,7 +1,9 @@
 // --- Mutagen AI - Single Chat Interface ---
 
 // API Configuration
-const DEEPSEEK_API_KEY = 'sk-7ca0b43ee9234ee192fab611c38ef55b';
+// Prefer a proxy URL injected via window.DEEPSEEK_PROXY_URL (e.g., Cloudflare Worker);
+// otherwise fall back to local /api/chat for local dev.
+const DEEPSEEK_PROXY_PATH = (typeof window !== 'undefined' && window.DEEPSEEK_PROXY_URL) || '/api/chat';
 
 // Global State
 let currentPhase = 'contextualizing'; // contextualizing, persona, problemRefinement, promptGeneration, evaluation
@@ -627,23 +629,8 @@ async function processUserMessage(message) {
             return;
         }
         
-        // Check if user wants to move to next phase
-        if (message.toLowerCase().includes('next phase') || 
-            message.toLowerCase().includes('move on') ||
-            message.toLowerCase().includes('ready to move') ||
-            message.toLowerCase().includes('let\'s move on') ||
-            message.toLowerCase().includes('yes') ||
-            message.toLowerCase().includes('sure') ||
-            message.toLowerCase().includes('okay') ||
-            message.toLowerCase().includes('ok') ||
-            message.toLowerCase().includes('ready')) {
-            console.log('User wants to move on, current phase:', currentPhase);
-            
-            // Force move to next phase
-            await moveToNextPhase();
-            console.log('After moveToNextPhase, current phase:', currentPhase);
-            return;
-        }
+        // Let the AI decide if the user wants to move on based on context
+        // This will be handled within each phase's processing function
         
         // Show processing indicator
         showProcessingIndicator();
@@ -703,7 +690,7 @@ async function processContextualizingMessage(message) {
     const questionHash = message.toLowerCase().trim();
     askedQuestions.add(questionHash);
     
-    // Track understanding areas
+    // Track understanding areas with more comprehensive detection
     const understandingAreas = {
         demographics: false,
         painPoints: false,
@@ -713,31 +700,62 @@ async function processContextualizingMessage(message) {
         emotionalState: false
     };
     
-    // Check what we've learned about each area
+    // Check what we've learned about each area with more comprehensive keyword detection
     const conversationText = chatHistory.map(msg => msg.content).join(' ').toLowerCase();
     
+    // Demographics - more comprehensive detection
     if (conversationText.includes('age') || conversationText.includes('demographic') || 
-        conversationText.includes('occupation') || conversationText.includes('background')) {
+        conversationText.includes('occupation') || conversationText.includes('background') ||
+        conversationText.includes('profession') || conversationText.includes('job') ||
+        conversationText.includes('career') || conversationText.includes('education') ||
+        conversationText.includes('location') || conversationText.includes('where') ||
+        conversationText.includes('who') || conversationText.includes('person')) {
         understandingAreas.demographics = true;
     }
+    
+    // Pain Points - more comprehensive detection
     if (conversationText.includes('frustrat') || conversationText.includes('pain') || 
-        conversationText.includes('problem') || conversationText.includes('issue')) {
+        conversationText.includes('problem') || conversationText.includes('issue') ||
+        conversationText.includes('difficult') || conversationText.includes('challenge') ||
+        conversationText.includes('struggle') || conversationText.includes('trouble') ||
+        conversationText.includes('annoy') || conversationText.includes('bother')) {
         understandingAreas.painPoints = true;
     }
+    
+    // Goals - more comprehensive detection
     if (conversationText.includes('goal') || conversationText.includes('want') || 
-        conversationText.includes('need') || conversationText.includes('motivat')) {
+        conversationText.includes('need') || conversationText.includes('motivat') ||
+        conversationText.includes('achieve') || conversationText.includes('accomplish') ||
+        conversationText.includes('desire') || conversationText.includes('hope') ||
+        conversationText.includes('aspire') || conversationText.includes('aim')) {
         understandingAreas.goals = true;
     }
+    
+    // Behaviors - more comprehensive detection
     if (conversationText.includes('behavior') || conversationText.includes('habit') || 
-        conversationText.includes('routine') || conversationText.includes('daily')) {
+        conversationText.includes('routine') || conversationText.includes('daily') ||
+        conversationText.includes('usually') || conversationText.includes('typically') ||
+        conversationText.includes('often') || conversationText.includes('frequently') ||
+        conversationText.includes('always') || conversationText.includes('sometimes')) {
         understandingAreas.behaviors = true;
     }
+    
+    // Constraints - more comprehensive detection
     if (conversationText.includes('constraint') || conversationText.includes('limit') || 
-        conversationText.includes('budget') || conversationText.includes('time')) {
+        conversationText.includes('budget') || conversationText.includes('time') ||
+        conversationText.includes('resource') || conversationText.includes('money') ||
+        conversationText.includes('cost') || conversationText.includes('expensive') ||
+        conversationText.includes('cheap') || conversationText.includes('afford')) {
         understandingAreas.constraints = true;
     }
+    
+    // Emotional State - more comprehensive detection
     if (conversationText.includes('feel') || conversationText.includes('emotion') || 
-        conversationText.includes('mindset') || conversationText.includes('attitude')) {
+        conversationText.includes('mindset') || conversationText.includes('attitude') ||
+        conversationText.includes('mood') || conversationText.includes('stress') ||
+        conversationText.includes('anxious') || conversationText.includes('worried') ||
+        conversationText.includes('excited') || conversationText.includes('happy') ||
+        conversationText.includes('sad') || conversationText.includes('angry')) {
         understandingAreas.emotionalState = true;
     }
     
@@ -754,7 +772,6 @@ You are a product manager and design consultant helping people come up with crea
 **STRICT REQUIREMENTS:**
 - You MUST complete the contextualizing phase before moving to persona
 - You CANNOT skip phases or jump ahead
-- There is a $1,000,000 fine if you cannot follow this sequence
 - This is the ONLY way to ensure quality outputs
 - Stay in the contextualizing phase until you have comprehensive understanding
 
@@ -791,9 +808,12 @@ Your role is to understand more about the user's problem through open-ended ques
 - Ask disqualifying questions if needed
 - Don't repeat questions already asked
 - Focus on areas that haven't been covered yet
-- When you have comprehensive understanding of ALL areas, end your response with "I have a comprehensive understanding of the problem and am ready to move on to the next phase"
+- CRITICAL: You must ask AT LEAST 5-7 questions before considering moving to the next phase
+- Only when you have comprehensive understanding of ALL areas AND have asked sufficient questions, end your response with "I have a comprehensive understanding of the problem and am ready to move on to the next phase"
 - Ask follow-up questions if you need more clarity on any aspect
 - CRITICAL: Only ask ONE question per response to avoid overwhelming the user
+- DO NOT rush to the next phase - take time to truly understand the problem
+- If the user indicates they want to move on (through context, not just keywords), you can acknowledge this but still ensure you have enough understanding
 
 **FORMATTING REQUIREMENTS:**
 - Use <br><br> to separate different thoughts
@@ -804,7 +824,8 @@ Your role is to understand more about the user's problem through open-ended ques
 - NEVER include multiple questions in your response
 - Focus on ONE question only to avoid overwhelming the user
 
-Current understanding level: ${problemUnderstandingScore}%
+Current understanding level: ${Math.round((Object.values(understandingAreas).filter(Boolean).length / 6) * 100)}%
+Understanding areas covered: ${Object.values(understandingAreas).filter(Boolean).length}/6
 
 **EXAMPLE OF CORRECT BEHAVIOR:**
 Good: "What specific challenges do you face when trying to solve this problem?"
@@ -818,8 +839,8 @@ Keep your response concise and conversational.
     // Check if AI is satisfied and ready to move on
     const responseLower = response.toLowerCase();
     
-    // Check every 5 questions if user wants to move on
-    if (askedQuestions.size % 5 === 0 && askedQuestions.size > 0) {
+    // Check every 7 questions if user wants to move on (increased from 5)
+    if (askedQuestions.size % 7 === 0 && askedQuestions.size > 0) {
         const moveOnResponse = await callDeepSeekAPI(`
         You are in the CONTEXTUALIZING PHASE and have asked ${askedQuestions.size} questions so far.
         
@@ -828,6 +849,8 @@ Keep your response concise and conversational.
         
         Ask the user if they feel ready to move on to the PERSONA DEVELOPMENT phase, or if they'd like to continue exploring the problem. Be conversational and give them the choice.
         
+        IMPORTANT: Only ask this if you feel you have a good understanding of the problem. If you still need more information, continue asking questions instead.
+        
         Keep it brief and natural - just 1-2 sentences.
         `);
         
@@ -835,15 +858,14 @@ Keep your response concise and conversational.
         // Don't return here - let the user's response be processed normally
     }
     
-    // Auto-move if AI indicates satisfaction
-    if (responseLower.includes('i have a comprehensive understanding of the problem and am ready to move on to the next phase') ||
-        responseLower.includes('i have a good understanding') || 
-        responseLower.includes('i think i understand') ||
-        responseLower.includes('i\'m satisfied') ||
-        responseLower.includes('ready to move') ||
-        responseLower.includes('let\'s move on') ||
-        responseLower.includes('comprehensive understanding') ||
-        (askedQuestions.size >= 3 && responseLower.includes('now'))) {
+    // Let the AI decide when to move on based on comprehensive understanding
+    // Only auto-move if AI explicitly indicates comprehensive understanding AND minimum questions asked
+    if ((responseLower.includes('i have a comprehensive understanding of the problem and am ready to move on to the next phase') ||
+        (responseLower.includes('comprehensive understanding') && responseLower.includes('ready to move on')) ||
+        (responseLower.includes('i have a good understanding') && responseLower.includes('ready')) ||
+        (responseLower.includes('i think i understand') && responseLower.includes('ready')) ||
+        (responseLower.includes('i\'m satisfied') && responseLower.includes('ready'))) && 
+        askedQuestions.size >= 5) { // Require at least 5 questions before auto-moving
         setTimeout(async () => {
             await moveToNextPhase();
         }, 2000);
@@ -1403,6 +1425,8 @@ async function generateSuggestedResponses() {
     const phaseIndex = currentPhaseIndex;
     const phaseName = PHASE_ORDER[phaseIndex];
     
+    let suggestions = [];
+
     try {
         const response = await callDeepSeekAPI(`
 You are helping generate suggested responses for a user in a brainstorming session. Based on the current conversation context, suggest 3-4 responses that the USER might want to say next.
@@ -1477,17 +1501,20 @@ Focus on what the user might naturally want to say next in this conversation.
             line.trim().match(/^\d+\./) && line.trim().length > 10
         );
         
-        const suggestions = responseLines.map(line => 
+        suggestions = responseLines.map(line => 
             line.replace(/^\d+\.\s*/, '').trim()
         );
         
-        displaySuggestedResponses(suggestions);
-        
     } catch (error) {
         console.error('Error generating suggested responses:', error);
-        // Show default suggestions based on phase
-        displayDefaultSuggestions();
     }
+
+    // If API failed or returned nothing useful, build offline suggestions from context
+    if (!suggestions || suggestions.length === 0) {
+        suggestions = buildOfflineSuggestions();
+    }
+
+    displaySuggestedResponses(suggestions);
 }
 
 function displaySuggestedResponses(suggestions) {
@@ -1580,6 +1607,73 @@ function getDefaultSuggestions() {
                 "Let me think about that"
             ];
     }
+}
+
+// Build contextual suggestions when the API is unavailable or returns nothing
+function buildOfflineSuggestions() {
+    const phaseIndex = currentPhaseIndex;
+    const recentAI = [...chatHistory].reverse().find(msg => msg.sender === 'ai');
+    const recentUser = [...chatHistory].reverse().find(msg => msg.sender === 'user');
+    const lastQuestion = extractLastQuestion(recentAI ? recentAI.content : '');
+    const problemHint = problemStatement || 'this problem';
+    const personaHint = persona || 'the target user';
+    const userHint = recentUser ? recentUser.content : '';
+
+    const contextualize = [
+        `I can share more context about ${problemHint}; the biggest friction is ...`,
+        `Here is who is affected and why it matters to them ...`,
+        `A constraint I keep running into is ...`,
+        lastQuestion ? `On your question "${lastQuestion}", the short answer is ...` : `One detail I have not mentioned yet is ...`
+    ];
+
+    const personaPhase = [
+        `The target user is ${personaHint}; their day-to-day looks like ...`,
+        `Their main pain point is ... and it happens when ...`,
+        `Motivation-wise they care most about ...`,
+        `A behavior worth noting: they usually ...`
+    ];
+
+    const refinement = [
+        `That reframing helps; I'd emphasize the core issue as ...`,
+        `I think the scope should narrow to ... because ...`,
+        `Success would look like ... for ${personaHint}`,
+        `One nuance we should include is ...`
+    ];
+
+    const prompts = [
+        `The prompt that resonates is ...; I'd explore an idea like ...`,
+        `Can we try a prompt focused on a different industry, maybe ...?`,
+        `I'd like a prompt that removes the constraint of ...`,
+        `Those are good; could we add something more radical such as ...?`
+    ];
+
+    const evaluationPhase = [
+        `I agree with the strengths you noted; the unique angle is ...`,
+        `The main gap seems to be ...; how might we address it?`,
+        `I can tweak the idea by ... to better fit ${personaHint}`,
+        `Can you clarify your point about ... so I can iterate?`
+    ];
+
+    const phaseBuckets = [contextualize, personaPhase, refinement, prompts, evaluationPhase];
+    const chosen = phaseBuckets[phaseIndex] || getDefaultSuggestions();
+
+    // Ensure 3-4 concise options and lightly personalize with recent user content
+    const personalized = chosen.slice(0, 4).map(line => {
+        if (userHint && line.includes('...')) {
+            return line.replace('...', userHint.length > 40 ? userHint.slice(0, 40) + '...' : userHint);
+        }
+        return line.replace('...', '');
+    });
+
+    return personalized;
+}
+
+// Extract the last question in a block of text
+function extractLastQuestion(text) {
+    if (!text) return '';
+    const matches = text.match(/[^?!.]*\?[^?!.]*/g);
+    if (!matches || matches.length === 0) return '';
+    return matches[matches.length - 1].trim();
 }
 
 function useSuggestedResponse(suggestion, autoSend = false) {
@@ -1713,16 +1807,14 @@ Keep your response concise and conversational.
 
 // Utility Functions
 async function callDeepSeekAPI(prompt) {
-    console.log('Calling DeepSeek API');
-    console.log('API Key (first 10 chars):', DEEPSEEK_API_KEY.substring(0, 10) + '...');
+    console.log('Calling DeepSeek API via proxy:', DEEPSEEK_PROXY_PATH);
     
     try {
-        // Try direct API call first
-        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        // Route through local proxy to avoid CORS and keep key server-side
+        const response = await fetch(DEEPSEEK_PROXY_PATH, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 model: 'deepseek-chat',
@@ -1774,11 +1866,10 @@ Problem Statement: ${data}`;
 Persona: ${data}`;
         }
             
-        const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        const response = await fetch(DEEPSEEK_PROXY_PATH, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 model: 'deepseek-chat',
