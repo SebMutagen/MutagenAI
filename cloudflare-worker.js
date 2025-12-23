@@ -14,6 +14,22 @@ export default {
       });
     }
 
+    // Allow GET requests for testing/debugging
+    if (request.method === 'GET') {
+      return new Response(JSON.stringify({ 
+        status: 'Worker is running',
+        message: 'DeepSeek API Proxy',
+        method: 'Use POST to send requests',
+        hasApiKey: !!env.DEEPSEEK_API_KEY
+      }), {
+        status: 200,
+        headers: {
+          ...corsHeaders(),
+          'Content-Type': 'application/json',
+        },
+      });
+    }
+
     if (request.method !== 'POST') {
       return new Response('Method Not Allowed', {
         status: 405,

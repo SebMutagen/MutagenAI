@@ -3,7 +3,12 @@
 // API Configuration
 // Prefer a proxy URL injected via window.DEEPSEEK_PROXY_URL (e.g., Cloudflare Worker);
 // otherwise fall back to local /api/chat for local dev.
-const DEEPSEEK_PROXY_PATH = (typeof window !== 'undefined' && window.DEEPSEEK_PROXY_URL) || '/api/chat';
+function getProxyPath() {
+    if (typeof window !== 'undefined' && window.DEEPSEEK_PROXY_URL) {
+        return window.DEEPSEEK_PROXY_URL;
+    }
+    return '/api/chat';
+}
 
 // Global State
 let currentPhase = 'contextualizing'; // contextualizing, persona, problemRefinement, promptGeneration, evaluation
@@ -30,6 +35,11 @@ let refreshPromptsBtn;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', () => {
+    // Debug: Verify proxy URL is set
+    console.log('🔍 Initialization - Proxy URL check:');
+    console.log('  window.DEEPSEEK_PROXY_URL:', window.DEEPSEEK_PROXY_URL);
+    console.log('  getProxyPath():', getProxyPath());
+    
     initializeElements();
     setupEventListeners();
     updateCardLockStates(); // Initialize card lock states
@@ -1807,11 +1817,18 @@ Keep your response concise and conversational.
 
 // Utility Functions
 async function callDeepSeekAPI(prompt) {
-    console.log('Calling DeepSeek API via proxy:', DEEPSEEK_PROXY_PATH);
+    const proxyPath = getProxyPath();
+    console.log('Calling DeepSeek API via proxy:', proxyPath);
+    console.log('Window DEEPSEEK_PROXY_URL:', window.DEEPSEEK_PROXY_URL);
+    
+    // Validate the proxy URL
+    if (proxyPath.startsWith('http') && !proxyPath.includes('workers.dev') && !proxyPath.includes('localhost')) {
+        console.warn('Warning: Proxy URL might be incorrect. Expected Cloudflare Worker URL or local /api/chat');
+    }
     
     try {
         // Route through local proxy to avoid CORS and keep key server-side
-        const response = await fetch(DEEPSEEK_PROXY_PATH, {
+        const response = await fetch(proxyPath, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -1839,8 +1856,23 @@ async function callDeepSeekAPI(prompt) {
         console.log('API Response received successfully');
         return data.choices[0].message.content;
     } catch (error) {
+        const proxyPath = getProxyPath();
         console.error('API call failed:', error);
         console.error('Error details:', error.message);
+        console.error('Proxy URL used:', proxyPath);
+        console.error('Window DEEPSEEK_PROXY_URL:', window.DEEPSEEK_PROXY_URL);
+        
+        // Check for DNS/network errors
+        if (error.message.includes('ERR_NAME_NOT_RESOLVED') || error.message.includes('Failed to fetch')) {
+            console.error('❌ DNS Error: The Worker URL cannot be resolved.');
+            console.error('Please verify:');
+            console.error('1. The Worker is deployed in Cloudflare Dashboard');
+            console.error('2. The Worker URL is correct (check Workers & Pages → Your Worker → Copy URL)');
+            console.error('3. The URL format should be: https://<worker-name>.<subdomain>.workers.dev');
+            console.error('Current URL:', proxyPath);
+            console.error('Window variable:', window.DEEPSEEK_PROXY_URL);
+        }
+        
         console.error('Error stack:', error.stack);
         
         // Set API as not working
@@ -1866,7 +1898,8 @@ Problem Statement: ${data}`;
 Persona: ${data}`;
         }
             
-        const response = await fetch(DEEPSEEK_PROXY_PATH, {
+        const proxyPath = getProxyPath();
+        const response = await fetch(proxyPath, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
