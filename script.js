@@ -2,7 +2,8 @@
 
 // API Configuration
 // Prefer a proxy URL injected via window.DEEPSEEK_PROXY_URL (e.g., Cloudflare Worker);
-// otherwise fall back to local /api/chat for local dev.
+// The proxy converts requests to Claude API format
+// Otherwise fall back to local /api/chat for local dev.
 function getProxyPath() {
     if (typeof window !== 'undefined' && window.DEEPSEEK_PROXY_URL) {
         return window.DEEPSEEK_PROXY_URL;
@@ -14,13 +15,10 @@ function getProxyPath() {
 let currentPhase = 'contextualizing'; // contextualizing, persona, problemRefinement, promptGeneration, evaluation
 let problemStatement = '';
 let generatedPrompts = [];
-let ideas = [];
 let askedQuestions = new Set(); // Track asked questions to avoid repetition
-let problemUnderstandingScore = 0; // Track AI's understanding of the problem
 let chatHistory = [];
 let persona = null; // Store the created persona
 let reframedProblem = null; // Store the reframed problem statement
-let apiWorking = true; // Track if API is working
 
 // Phase tracking for objective management
 const PHASE_ORDER = ['contextualizing', 'persona', 'problemRefinement', 'promptGeneration', 'evaluation'];
@@ -28,21 +26,16 @@ let currentPhaseIndex = 0; // Track current phase index for objective management
 
 // DOM Elements
 let chatMessages, chatInput, sendButton, loadingOverlay, processingIndicator;
-let leftSidebar, rightSidebar, promptsList, generatePromptsBtn, problemStatementContent, personaContent;
+let leftSidebar, rightSidebar, promptsList, problemStatementContent, personaContent;
 let suggestedResponsesList;
 let brainstormingTab, savedIdeasTab, brainstormingContent, savedIdeasContent, savedIdeasList;
 let refreshPromptsBtn;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', () => {
-    // Debug: Verify proxy URL is set
-    console.log('🔍 Initialization - Proxy URL check:');
-    console.log('  window.DEEPSEEK_PROXY_URL:', window.DEEPSEEK_PROXY_URL);
-    console.log('  getProxyPath():', getProxyPath());
-    
     initializeElements();
     setupEventListeners();
-    updateCardLockStates(); // Initialize card lock states
+    updateCardLockStates();
 });
 
 function initializeElements() {
@@ -54,7 +47,6 @@ function initializeElements() {
     leftSidebar = document.getElementById('leftSidebar');
     rightSidebar = document.getElementById('rightSidebar');
     promptsList = document.getElementById('promptsList');
-    generatePromptsBtn = document.getElementById('generatePromptsBtn');
     problemStatementContent = document.getElementById('problemStatementContent');
     personaContent = document.getElementById('personaContent');
     problemStatementCard = document.getElementById('problemStatementCard');
@@ -172,19 +164,35 @@ function parseMarkdownFallback(text) {
 
 // Process inline markdown formatting
 function processInlineMarkdown(text) {
-    return text
-        // Bold text
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/__(.*?)__/g, '<strong>$1</strong>')
-        // Italic text
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/_(.*?)_/g, '<em>$1</em>')
-        // Inline code
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        // Links
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-        // Images
-        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto;">');
+    // Skip processing if text already contains HTML tags (AI is using HTML directly)
+    if (text.includes('<strong>') || text.includes('<em>') || text.includes('<code>')) {
+        // Still process links and images even if HTML is present
+        text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+        text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto;">');
+        return text;
+    }
+    
+    // Process bold text first (using **) - must come before italic to avoid conflicts
+    // Match **text** but ensure we don't match ***text*** incorrectly
+    text = text.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/__([^_\n]+?)__/g, '<strong>$1</strong>');
+    
+    // Process inline code (protect code blocks from markdown processing)
+    text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    
+    // Process italic text (using single *) - only match if not part of **
+    // Match *text* but ensure it's not part of **text** by checking context
+    // Use a pattern that requires word boundaries or spaces
+    text = text.replace(/(^|\s)\*([^*\s\n][^*\n]*?[^*\s\n])\*(\s|$)/g, '$1<em>$2</em>$3');
+    text = text.replace(/(^|\s)_([^_\s\n][^_\n]*?[^_\s\n])_(\s|$)/g, '$1<em>$2</em>$3');
+    
+    // Process links
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    
+    // Process images
+    text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto;">');
+    
+    return text;
 }
 
 // Card locking functions
@@ -317,13 +325,6 @@ function setupEventListeners() {
         chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
     });
     
-    // Generate prompts button
-    if (generatePromptsBtn) {
-        generatePromptsBtn.addEventListener('click', () => {
-            generatePromptsFromProblem();
-        });
-    }
-    
     // Keyboard shortcuts for suggested responses (Ctrl+1/2/3/4)
     document.addEventListener('keydown', (e) => {
         if (e.ctrlKey && (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4')) {
@@ -392,6 +393,72 @@ async function moveToNextPhase() {
         updateCardLockStates();
         addMessageToChat('ai', 'Great! Let\'s generate some fresh prompts to continue brainstorming.', true);
     }
+}
+
+// Check if user explicitly wants to move on
+function userWantsToMoveOn(message) {
+    const messageLower = message.toLowerCase().trim();
+    const moveOnKeywords = [
+        'move on', 'move forward', 'next phase', 'continue to', 'proceed to',
+        'ready for', 'ready to move', 'let\'s move', 'go to next',
+        'skip', 'skip this', 'move ahead', 'next step'
+    ];
+    
+    return moveOnKeywords.some(keyword => messageLower.includes(keyword));
+}
+
+// Check if user gives an affirmative response (yes, correct, accurate, etc.)
+function isAffirmativeResponse(message) {
+    const messageLower = message.toLowerCase().trim();
+    const affirmativeKeywords = [
+        'yes', 'yeah', 'yep', 'yup', 'sure', 'correct', 'right', 'accurate',
+        'that\'s right', 'that\'s correct', 'that works', 'sounds good',
+        'looks good', 'perfect', 'good', 'fine', 'ok', 'okay', 'agreed',
+        'i agree', 'that\'s accurate', 'it\'s accurate', 'it is accurate',
+        'sounds right', 'looks right', 'that\'s fine', 'that works for me'
+    ];
+    
+    // Check for simple affirmative responses
+    if (affirmativeKeywords.some(keyword => messageLower === keyword || messageLower.startsWith(keyword + ' ') || messageLower.endsWith(' ' + keyword))) {
+        return true;
+    }
+    
+    // Check for affirmative phrases
+    const affirmativePhrases = [
+        'that\'s correct', 'that is correct', 'that\'s right', 'that is right',
+        'sounds good', 'looks good', 'that works', 'i agree', 'i\'m good',
+        'no changes', 'no change', 'it\'s good', 'it is good', 'it\'s fine',
+        'it is fine', 'it\'s accurate', 'it is accurate', 'that\'s accurate'
+    ];
+    
+    return affirmativePhrases.some(phrase => messageLower.includes(phrase));
+}
+
+// Check if AI is 95% certain (based on understanding score or explicit confidence)
+async function checkAIConfidence(phase, response, understandingScore = null) {
+    const responseLower = response.toLowerCase();
+    
+    // Check for explicit high confidence indicators
+    const highConfidenceIndicators = [
+        'i am 95%', 'i am 100%', 'i am very confident', 'i am highly confident',
+        'i am certain', 'i am sure', 'completely understand', 'fully understand',
+        'comprehensive understanding', 'thorough understanding'
+    ];
+    
+    const hasHighConfidence = highConfidenceIndicators.some(indicator => 
+        responseLower.includes(indicator)
+    );
+    
+    // Calculate understanding percentage if provided
+    let confidencePercentage = null;
+    if (understandingScore !== null) {
+        confidencePercentage = understandingScore;
+    } else if (hasHighConfidence) {
+        confidencePercentage = 95; // Assume 95% if explicit high confidence
+    }
+    
+    // Check if confidence is >= 95%
+    return confidencePercentage !== null && confidencePercentage >= 95;
 }
 
 // Chat Interface
@@ -608,20 +675,16 @@ async function updatePersona(personaText) {
 }
 
 async function resetProgress() {
-    problemUnderstandingScore = 0;
     askedQuestions.clear();
     problemStatement = '';
     generatedPrompts = [];
-    ideas = [];
     persona = null;
     reframedProblem = null;
     currentPhase = 'contextualizing';
-    currentPhaseIndex = 0; // Reset phase index
+    currentPhaseIndex = 0;
     await updateProblemStatement('');
     await updatePersona('');
-    displayPromptsInPanel(); // Clear prompts
-    
-    // Reset card lock states
+    displayPromptsInPanel();
     updateCardLockStates();
 }
 
@@ -818,24 +881,31 @@ Your role is to understand more about the user's problem through open-ended ques
 - Ask disqualifying questions if needed
 - Don't repeat questions already asked
 - Focus on areas that haven't been covered yet
-- CRITICAL: You must ask AT LEAST 5-7 questions before considering moving to the next phase
-- Only when you have comprehensive understanding of ALL areas AND have asked sufficient questions, end your response with "I have a comprehensive understanding of the problem and am ready to move on to the next phase"
+- DO NOT automatically move to the next phase - only move when the user explicitly asks or when you are 95%+ confident
+- If you reach 95%+ confidence in your understanding, you may suggest moving on, but wait for user confirmation
 - Ask follow-up questions if you need more clarity on any aspect
 - CRITICAL: Only ask ONE question per response to avoid overwhelming the user
 - DO NOT rush to the next phase - take time to truly understand the problem
-- If the user indicates they want to move on (through context, not just keywords), you can acknowledge this but still ensure you have enough understanding
+- If the user explicitly asks to move on, acknowledge their request
 
 **FORMATTING REQUIREMENTS:**
 - Use <br><br> to separate different thoughts
 - Keep each paragraph to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
-- Use <strong> for emphasis when needed
+- Use <strong>HTML tags</strong> for emphasis (NOT markdown asterisks)
+- NEVER use markdown syntax like **bold** or *italic* - always use HTML tags like <strong>bold</strong> and <em>italic</em>
 - Break up your response into digestible chunks
 - NEVER include multiple questions in your response
 - Focus on ONE question only to avoid overwhelming the user
 
 Current understanding level: ${Math.round((Object.values(understandingAreas).filter(Boolean).length / 6) * 100)}%
 Understanding areas covered: ${Object.values(understandingAreas).filter(Boolean).length}/6
+
+**PHASE TRANSITION RULES:**
+- DO NOT automatically move to the next phase
+- Only move when the user explicitly asks to move on (e.g., "let's move on", "next phase", "continue")
+- If you reach 95%+ confidence in your understanding, you may suggest moving on, but wait for user confirmation
+- Never force a phase transition - always wait for user approval
 
 **EXAMPLE OF CORRECT BEHAVIOR:**
 Good: "What specific challenges do you face when trying to solve this problem?"
@@ -846,45 +916,66 @@ Keep your response concise and conversational.
     
     addMessageToChat('ai', response, true);
     
-    // Check if AI is satisfied and ready to move on
-    const responseLower = response.toLowerCase();
+    // Calculate understanding percentage
+    const understandingPercentage = Math.round((Object.values(understandingAreas).filter(Boolean).length / 6) * 100);
     
-    // Check every 7 questions if user wants to move on (increased from 5)
-    if (askedQuestions.size % 7 === 0 && askedQuestions.size > 0) {
-        const moveOnResponse = await callDeepSeekAPI(`
-        You are in the CONTEXTUALIZING PHASE and have asked ${askedQuestions.size} questions so far.
-        
-        Current problem understanding: "${problemStatement || 'Not yet defined'}"
-        Recent conversation: ${chatHistory.slice(-2).map(msg => `${msg.sender}: ${msg.content}`).join('\n')}
-        
-        Ask the user if they feel ready to move on to the PERSONA DEVELOPMENT phase, or if they'd like to continue exploring the problem. Be conversational and give them the choice.
-        
-        IMPORTANT: Only ask this if you feel you have a good understanding of the problem. If you still need more information, continue asking questions instead.
-        
-        Keep it brief and natural - just 1-2 sentences.
-        `);
-        
-        addMessageToChat('ai', moveOnResponse, true);
-        // Don't return here - let the user's response be processed normally
-    }
-    
-    // Let the AI decide when to move on based on comprehensive understanding
-    // Only auto-move if AI explicitly indicates comprehensive understanding AND minimum questions asked
-    if ((responseLower.includes('i have a comprehensive understanding of the problem and am ready to move on to the next phase') ||
-        (responseLower.includes('comprehensive understanding') && responseLower.includes('ready to move on')) ||
-        (responseLower.includes('i have a good understanding') && responseLower.includes('ready')) ||
-        (responseLower.includes('i think i understand') && responseLower.includes('ready')) ||
-        (responseLower.includes('i\'m satisfied') && responseLower.includes('ready'))) && 
-        askedQuestions.size >= 5) { // Require at least 5 questions before auto-moving
+    // Check if user wants to move on
+    if (userWantsToMoveOn(message)) {
+        // User explicitly requested to move on
         setTimeout(async () => {
             await moveToNextPhase();
-        }, 2000);
+        }, 1000);
+        return;
+    }
+    
+    // Check if AI is 95% certain (only move if confidence is >= 95%)
+    const isConfident = await checkAIConfidence('contextualizing', response, understandingPercentage);
+    if (isConfident && understandingPercentage >= 95) {
+        // AI is 95% certain - ask user for confirmation before moving
+        setTimeout(async () => {
+            const confirmationResponse = await callDeepSeekAPI(`
+            You are in the CONTEXTUALIZING PHASE and have reached ${understandingPercentage}% understanding of the problem.
+            
+            Based on your analysis, you believe you have a comprehensive understanding (95%+ confidence).
+            
+            Ask the user if they're ready to move on to the PERSONA DEVELOPMENT phase, or if they'd like to continue exploring. Be conversational and give them the choice.
+            
+            Keep it brief - just 1-2 sentences.
+            `);
+            addMessageToChat('ai', confirmationResponse, true);
+        }, 1000);
     }
 }
 
 // Phase 2: Persona Development
 async function processPersonaMessage(message) {
     console.log('processPersonaMessage called with:', message);
+    
+    // Check if user is confirming the persona (affirmative response)
+    // Look at the last AI message to see if it asked for confirmation
+    const lastAIMessage = chatHistory.filter(msg => msg.sender === 'ai').slice(-1)[0];
+    const askedForConfirmation = lastAIMessage && (
+        lastAIMessage.content.toLowerCase().includes('does this persona') ||
+        lastAIMessage.content.toLowerCase().includes('accurately reflect') ||
+        lastAIMessage.content.toLowerCase().includes('ready to move on') ||
+        lastAIMessage.content.toLowerCase().includes('make any changes')
+    );
+    
+    // If AI asked for confirmation and user gives affirmative response, move on
+    if (askedForConfirmation && isAffirmativeResponse(message)) {
+        setTimeout(async () => {
+            await moveToNextPhase();
+        }, 1000);
+        return;
+    }
+    
+    // Check if user wants to move on explicitly
+    if (userWantsToMoveOn(message)) {
+        setTimeout(async () => {
+            await moveToNextPhase();
+        }, 1000);
+        return;
+    }
     
     // Check if this is a persona revision request
     if (message.toLowerCase().includes('change') || 
@@ -917,7 +1008,8 @@ FORMATTING REQUIREMENTS:
 - Use "I extrapolated:" for AI-generated details
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct
-- Use <strong> for section headers and key details
+- Use <strong>HTML tags</strong> for section headers and key details (NOT markdown **bold**)
+- NEVER use markdown syntax like **bold** or *italic* - always use HTML tags
 - Break up your response into digestible chunks
         `);
         
@@ -967,7 +1059,8 @@ IMPORTANT GUIDELINES:
 - CLEARLY distinguish between what the user provided vs. what you extrapolated
 - Use quotes for any direct user statements
 - Be specific and detailed - this persona will guide ideation
-- When you have enough information to create a complete persona, end your response with "I have created a comprehensive persona and am ready to move on to the next phase"
+- DO NOT automatically move to the next phase - only move when the user explicitly asks or when you are 95%+ confident the persona is complete
+- If you reach 95%+ confidence that the persona is complete, you may suggest moving on, but wait for user confirmation
 - Present the persona in a clear, organized way
 
 FORMATTING REQUIREMENTS:
@@ -977,7 +1070,8 @@ FORMATTING REQUIREMENTS:
 - Use "I extrapolated:" for AI-generated details
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
-- Use <strong> for section headers and key details
+- Use <strong>HTML tags</strong> for section headers and key details (NOT markdown **bold**)
+- NEVER use markdown syntax like **bold** or *italic* - always use HTML tags
 - Break up your response into digestible chunks
 
 EXAMPLE FORMAT:
@@ -1036,13 +1130,15 @@ IMPORTANT GUIDELINES:
 - Sometimes make it broader, sometimes more specific
 - Enhance the user's understanding of the problem
 - Present the reframed statement clearly
-- When you've reframed the problem effectively, end your response with "I have successfully reframed the problem and am ready to move on to the next phase"
+- DO NOT automatically move to the next phase - only move when the user explicitly asks or when you are 95%+ confident the reframing is complete
+- If you reach 95%+ confidence that the reframing is effective, you may suggest moving on, but wait for user confirmation
 
 FORMATTING REQUIREMENTS:
 - Use <br><br> to separate different sections (Original Problem, Key Changes, Reframed Problem)
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
-- Use <strong> for section headers and key changes
+- Use <strong>HTML tags</strong> for section headers and key changes (NOT markdown **bold**)
+- NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
 - Break up your response into digestible chunks
 
 Keep your response concise and conversational.
@@ -1054,13 +1150,28 @@ Keep your response concise and conversational.
     reframedProblem = response;
     await updateProblemStatement(response);
     
-    // Check if reframing is complete and move on automatically
-    const responseLower = response.toLowerCase();
-    if (responseLower.includes('i have successfully reframed the problem and am ready to move on to the next phase') ||
-        (response.length > 200 && responseLower.includes('reframed'))) { // Only auto-move if substantial and contains reframed
+    // Check if user wants to move on
+    if (userWantsToMoveOn(message)) {
         setTimeout(async () => {
             await moveToNextPhase();
-        }, 2000);
+        }, 1000);
+        return;
+    }
+    
+    // Check if AI is 95% certain (only suggest moving, don't auto-move)
+    const isConfident = await checkAIConfidence('problemRefinement', response);
+    if (isConfident && response.length > 200) {
+        // AI is confident - suggest moving but wait for user confirmation
+        setTimeout(async () => {
+            const suggestionResponse = await callDeepSeekAPI(`
+            You've successfully reframed the problem statement. 
+            
+            Ask the user if they're satisfied with this reframing and ready to move on to generating creative prompts, or if they'd like to refine it further.
+            
+            Keep it brief - just 1-2 sentences.
+            `);
+            addMessageToChat('ai', suggestionResponse, true);
+        }, 1000);
     }
 }
 
@@ -1103,7 +1214,8 @@ IMPORTANT GUIDELINES:
 - Make prompts specific to their problem and persona
 - Draw from different industries and approaches
 - Keep responses short and conversational (1-3 sentences)
-- When you've provided good prompts, end your response with "I have generated comprehensive brainstorming prompts and am ready to move on to the next phase"
+- DO NOT automatically move to the next phase - only move when the user explicitly asks
+- The prompt generation phase is ongoing - users can generate ideas and you can provide more prompts as needed
 
 FORMATTING REQUIREMENTS:
 - Use <br><br> to separate different sections (Introduction, Prompts, Conclusion)
@@ -1111,7 +1223,8 @@ FORMATTING REQUIREMENTS:
 - Use bullet points or numbered lists for prompts
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
-- Use <strong> for emphasis when needed
+- Use <strong>HTML tags</strong> for emphasis (NOT markdown **bold**)
+- NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
 - Break up your response into digestible chunks
 - Structure prompts clearly with line breaks between each one
 
@@ -1141,56 +1254,6 @@ Keep your response concise and conversational.
     // Ideation is now the final phase - no auto-move needed
 }
 
-
-async function generatePromptsFromProblem() {
-    if (!problemStatement) {
-        addMessageToChat('ai', 'Please complete the problem statement first before generating prompts.', true);
-        return;
-      }
-
-    addMessageToChat('ai', 'Generating creative prompts based on your problem statement...', true);
-    
-    const response = await callDeepSeekAPI(`
-Generate 3-5 creative prompts to inspire solutions for this problem: "${problemStatement}"
-
-Each prompt should:
-1. Start with "What if..." or "How might we..."
-2. Be 1-2 sentences long
-3. Challenge assumptions
-4. Inspire creative thinking
-5. Be actionable
-
-Format each prompt on a new line with a number (1., 2., etc.)
-
-Keep your response concise and conversational.
-    `);
-    
-    addMessageToChat('ai', response, true);
-    
-    // Parse and store prompts
-    const promptLines = response.split('\n').filter(line => 
-        line.trim().match(/^\d+\./) && line.trim().length > 10
-    );
-    
-    generatedPrompts = promptLines.map((line, index) => ({
-        id: Date.now() + index,
-        text: line.replace(/^\d+\.\s*/, ''),
-        source: 'AI Generated'
-    }));
-    
-    // Display prompts in side panel
-    displayPromptsInPanel();
-    
-    // Show generate button
-    if (generatePromptsBtn) {
-        generatePromptsBtn.style.display = 'block';
-    }
-    
-    // Automatically move to ideas phase
-    setTimeout(async () => {
-        await moveToNextPhase();
-    }, 2000);
-}
 
 // Display prompts in side panel
 function displayPromptsInPanel() {
@@ -1309,13 +1372,15 @@ IMPORTANT GUIDELINES:
 - Ask probing questions to help them think deeper
 - Suggest concrete improvements
 - Connect the idea back to the persona's needs
-- When you've provided good feedback, end your response with "I have provided comprehensive feedback and am ready to generate new prompts"
+- DO NOT automatically move to the next phase - only move when the user explicitly asks
+- After evaluation, you can suggest generating new prompts, but wait for user confirmation
 
 FORMATTING REQUIREMENTS:
 - Use <br><br> to separate different sections (Strengths, Challenges, Suggestions)
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
-- Use <strong> for section headers and key points
+- Use <strong>HTML tags</strong> for section headers and key points (NOT markdown **bold**)
+- NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
 - Break up your response into digestible chunks
 
 Keep your response concise and conversational.
@@ -1323,14 +1388,27 @@ Keep your response concise and conversational.
     
     addMessageToChat('ai', response, true);
     
-    // Check if evaluation is complete and move to prompt generation
-    const responseLower = response.toLowerCase();
-    if (responseLower.includes('i have provided comprehensive feedback and am ready to generate new prompts') ||
-        (response.length > 200 && responseLower.includes('feedback'))) {
+    // Check if user wants to move on or generate new prompts
+    if (userWantsToMoveOn(message) || message.toLowerCase().includes('new prompt') || message.toLowerCase().includes('generate prompt')) {
         setTimeout(async () => {
             currentPhase = 'promptGeneration';
             updateCardLockStates();
             await generateNewPrompts();
+        }, 1000);
+        return;
+    }
+    
+    // After evaluation, suggest generating new prompts but don't auto-move
+    if (response.length > 200) {
+        setTimeout(async () => {
+            const suggestionResponse = await callDeepSeekAPI(`
+            You've provided feedback on the user's idea.
+            
+            Ask the user if they'd like to generate new prompts to continue brainstorming, or if they have more ideas to share.
+            
+            Keep it brief - just 1-2 sentences.
+            `);
+            addMessageToChat('ai', suggestionResponse, true);
         }, 2000);
     }
 }
@@ -1360,17 +1438,23 @@ FORMATTING REQUIREMENTS:
 - Use <br><br> to separate different sections (Strengths, Challenges, Suggestions)
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
-- Use <strong> for section headers and key points
+- Use <strong>HTML tags</strong> for section headers and key points (NOT markdown **bold**)
+- NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
 - Break up your response into digestible chunks
         `);
         
         addMessageToChat('ai', evaluation, true);
         
-        // Generate new prompts after evaluation - ONLY AFTER EVALUATION IS COMPLETE
-        setTimeout(() => {
-            currentPhase = 'promptGeneration';
-            updateCardLockStates();
-            generateNewPrompts();
+        // Suggest generating new prompts after evaluation, but don't auto-move
+        setTimeout(async () => {
+            const suggestionResponse = await callDeepSeekAPI(`
+            You've evaluated the user's idea.
+            
+            Ask the user if they'd like to generate new prompts to continue brainstorming, or if they have more ideas to share.
+            
+            Keep it brief - just 1-2 sentences.
+            `);
+            addMessageToChat('ai', suggestionResponse, true);
         }, 2000);
   } catch (error) {
         console.error('Error evaluating idea:', error);
@@ -1781,45 +1865,10 @@ function loadSavedIdeas() {
 }
 
 
-// Phase 3: Ideas Review
-async function processIdeasReviewMessage(message) {
-    console.log('processIdeasReviewMessage called with:', message);
-    
-    // Store the idea
-    const ideaId = Date.now();
-    ideas.push({
-        id: ideaId,
-        content: message,
-        timestamp: Date.now()
-    });
-    
-    console.log('Stored idea, now calling DeepSeek API...');
-    
-    // Get AI feedback
-    const feedback = await callDeepSeekAPI(`
-The user shared this idea: "${message}"
-
-Their original problem: "${problemStatement}"
-
-Provide constructive feedback that:
-1. Highlights what works well about the idea
-2. Challenges assumptions and asks probing questions
-3. Suggests alternative approaches or angles
-4. Helps them think more deeply about implementation
-
-Be encouraging but critical. Help them explore different perspectives.
-
-Keep your response concise and conversational.
-    `);
-    
-    addMessageToChat('ai', feedback, true);
-}
-
 // Utility Functions
 async function callDeepSeekAPI(prompt) {
     const proxyPath = getProxyPath();
-    console.log('Calling DeepSeek API via proxy:', proxyPath);
-    console.log('Window DEEPSEEK_PROXY_URL:', window.DEEPSEEK_PROXY_URL);
+    console.log('Calling Claude API via proxy:', proxyPath);
     
     // Validate the proxy URL
     if (proxyPath.startsWith('http') && !proxyPath.includes('workers.dev') && !proxyPath.includes('localhost')) {
@@ -1827,17 +1876,6 @@ async function callDeepSeekAPI(prompt) {
     }
     
     try {
-        // First, test if the URL is reachable with a simple GET request
-        console.log('Testing Worker connectivity...');
-        try {
-            const testResponse = await fetch(proxyPath, { method: 'GET' });
-            const testData = await testResponse.json();
-            console.log('✅ Worker is reachable:', testData);
-        } catch (testError) {
-            console.error('❌ Worker connectivity test failed:', testError);
-            throw new Error(`Cannot reach Worker at ${proxyPath}. Please verify the URL is correct and the Worker is deployed.`);
-        }
-        
         // Route through local proxy to avoid CORS and keep key server-side
         console.log('Sending POST request to:', proxyPath);
         const response = await fetch(proxyPath, {
@@ -1846,7 +1884,7 @@ async function callDeepSeekAPI(prompt) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: 'deepseek-chat',
+                model: 'claude', // Model name is converted by worker to Claude
                 messages: [
                     { role: 'user', content: prompt }
                 ],
@@ -1861,7 +1899,7 @@ async function callDeepSeekAPI(prompt) {
         if (!response.ok) {
             const errorData = await response.json();
             console.error('API Error Response:', errorData);
-            throw new Error(`DeepSeek API error: ${response.status} - ${errorData.error?.message || errorData.message || 'Unknown error'}`);
+            throw new Error(`Claude API error: ${response.status} - ${errorData.error?.message || errorData.message || 'Unknown error'}`);
         }
         
         const data = await response.json();
@@ -1872,13 +1910,11 @@ async function callDeepSeekAPI(prompt) {
         console.error('API call failed:', error);
         console.error('Error details:', error.message);
         console.error('Proxy URL used:', proxyPath);
-        console.error('Window DEEPSEEK_PROXY_URL:', window.DEEPSEEK_PROXY_URL);
         
         // Check for DNS/network errors
         if (error.message.includes('ERR_NAME_NOT_RESOLVED') || error.message.includes('Failed to fetch')) {
             console.error('❌ DNS/Network Error: The Worker URL cannot be resolved.');
             console.error('Current URL being used:', proxyPath);
-            console.error('Window variable value:', window.DEEPSEEK_PROXY_URL);
             console.error('');
             console.error('🔍 Troubleshooting steps:');
             console.error('1. Open this URL directly in your browser:', proxyPath);
@@ -1893,9 +1929,6 @@ async function callDeepSeekAPI(prompt) {
         }
         
         console.error('Error stack:', error.stack);
-        
-        // Set API as not working
-        apiWorking = false;
         
         // Use fallback responses instead of error messages
         console.log('Using fallback response for phase:', currentPhase);
@@ -1924,7 +1957,7 @@ Persona: ${data}`;
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: 'deepseek-chat',
+                model: 'claude', // Model name is converted by worker to Claude
                 messages: [
                     { role: 'user', content: prompt }
                 ],
@@ -1935,7 +1968,7 @@ Persona: ${data}`;
         
         if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(`DeepSeek API error: ${response.status} - ${errorData.error || 'Unknown error'}`);
+            throw new Error(`Claude API error: ${response.status} - ${errorData.error?.message || errorData.message || 'Unknown error'}`);
         }
         
         const responseData = await response.json();
@@ -1987,35 +2020,8 @@ function getFallbackResponse(phase, message) {
     return responses[Math.floor(Math.random() * responses.length)];
 }
 
-// Test API connection
-async function testAPIConnection() {
-    console.log('Testing API connection...');
-    try {
-        const testResponse = await callDeepSeekAPI('Hello, this is a test message. Please respond with "API connection successful"');
-        console.log('API Test Response:', testResponse);
-        apiWorking = true;
-        return true;
-    } catch (error) {
-        console.error('API Test Failed:', error);
-        apiWorking = false;
-        return false;
-    }
-}
-
 // Initialize on load
 window.onload = function() {
     console.log('Mutagen AI - Single Chat Interface loaded');
-    console.log('API Endpoint: https://api.deepseek.com/v1/chat/completions');
-    
-    // Test API connection after a short delay
-    setTimeout(async () => {
-        const apiWorking = await testAPIConnection();
-        if (apiWorking) {
-            console.log('✅ API connection test successful');
-            addMessageToChat('ai', 'Hello! I\'m ready to help you brainstorm creative solutions. What problem would you like to solve today?', true);
-        } else {
-            console.log('❌ API connection test failed - using fallback mode');
-            addMessageToChat('ai', 'Hello! I\'m ready to help you brainstorm creative solutions. (Note: Running in offline mode due to API connection issues) What problem would you like to solve today?', true);
-        }
-    }, 1000);
+    addMessageToChat('ai', 'Hello! I\'m ready to help you brainstorm creative solutions. What problem would you like to solve today?', true);
 }; 
