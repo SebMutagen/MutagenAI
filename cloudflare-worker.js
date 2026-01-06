@@ -65,7 +65,7 @@ export default {
 
         // Build Claude API request
         const claudeRequest = {
-          model: 'claude-3-5-sonnet-20241022', // Use latest Claude model
+          model: 'claude-haiku-4-5-20251001', // Use Claude Sonnet 4.5 model
           max_tokens: requestBody.max_tokens || 1000,
           messages: messages.map(msg => ({
             role: msg.role === 'assistant' ? 'assistant' : 'user',

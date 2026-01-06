@@ -1,12 +1,12 @@
 // --- Mutagen AI - Single Chat Interface ---
 
 // API Configuration
-// Prefer a proxy URL injected via window.DEEPSEEK_PROXY_URL (e.g., Cloudflare Worker);
+// Prefer a proxy URL injected via window.CLAUDE_PROXY_URL (e.g., Cloudflare Worker);
 // The proxy converts requests to Claude API format
 // Otherwise fall back to local /api/chat for local dev.
 function getProxyPath() {
-    if (typeof window !== 'undefined' && window.DEEPSEEK_PROXY_URL) {
-        return window.DEEPSEEK_PROXY_URL;
+    if (typeof window !== 'undefined' && window.CLAUDE_PROXY_URL) {
+        return window.CLAUDE_PROXY_URL;
     }
     return '/api/chat';
 }
@@ -371,27 +371,13 @@ async function moveToNextPhase() {
         // Update card lock states
         updateCardLockStates();
         
-        // Add phase transition message
-        switch(currentPhase) {
-            case 'persona':
-                addMessageToChat('ai', 'Great! Now let\'s create a detailed persona to better understand your target user. This will help guide our brainstorming process.', true);
-                break;
-            case 'problemRefinement':
-                addMessageToChat('ai', 'Perfect! Now let\'s refine your problem statement to open up new creative possibilities.', true);
-                break;
-            case 'promptGeneration':
-                addMessageToChat('ai', 'Excellent! Now let\'s generate some creative prompts to inspire your brainstorming.', true);
-                break;
-            case 'evaluation':
-                addMessageToChat('ai', 'Now let\'s evaluate your ideas and provide constructive feedback.', true);
-                break;
-        }
+        // No forced transition messages - the chatbot will naturally introduce the next phase in its response
     } else {
         // After evaluation, cycle back to prompt generation
         currentPhaseIndex = 3; // Set to promptGeneration index
         currentPhase = 'promptGeneration';
         updateCardLockStates();
-        addMessageToChat('ai', 'Great! Let\'s generate some fresh prompts to continue brainstorming.', true);
+        // No forced transition message - the chatbot will naturally introduce the next phase
     }
 }
 
@@ -540,6 +526,11 @@ function addMessageToChat(sender, content, isHtml = false) {
         setTimeout(() => {
             updateProblemStatementFromAI(content);
             updatePersonaFromAI(content);
+            
+            // If we're in prompt generation phase, extract and display prompts from AI response
+            if (currentPhase === 'promptGeneration') {
+                extractAndDisplayPrompts(content);
+            }
         }, 3000);
     }
 }
@@ -563,31 +554,56 @@ function hideProcessingIndicator() {
 async function updateProblemStatement(statement) {
     if (problemStatementContent) {
         if (statement && statement.trim()) {
+            // Always store the full statement data
+            if (!window.currentProblemData) {
+                window.currentProblemData = statement;
+            } else {
+                // Accumulate: append new information if it's different
+                if (!window.currentProblemData.includes(statement)) {
+                    window.currentProblemData = `${window.currentProblemData}\n\n${statement}`;
+                }
+            }
+            
             try {
-                // Use stored raw data if available, otherwise use the statement
-                const dataToSummarize = window.currentProblemData || statement;
+                // Try to get a summary, but fallback to showing more content if summary is too short
+                const dataToSummarize = window.currentProblemData;
                 const summary = await callSummaryAPI(dataToSummarize, 'problem');
-                problemStatementContent.innerHTML = `<p>${summary}</p>`;
+                // If summary is very short, show more of the original content
+                if (summary && summary.length > 50) {
+                    problemStatementContent.innerHTML = `<p>${summary}</p>`;
+                } else {
+                    // Show a more comprehensive view (first 300 chars + summary)
+                    const preview = dataToSummarize.length > 300 ? 
+                        dataToSummarize.substring(0, 300) + '...' : 
+                        dataToSummarize;
+                    problemStatementContent.innerHTML = `<p>${preview}</p>`;
+                }
             } catch (error) {
                 console.error('Error summarizing problem statement:', error);
-                // Fallback to showing the full statement if API fails
-                problemStatementContent.innerHTML = `<p>${statement}</p>`;
+                // Fallback: show the accumulated content (truncated if too long)
+                const displayText = window.currentProblemData.length > 500 ? 
+                    window.currentProblemData.substring(0, 500) + '...' : 
+                    window.currentProblemData;
+                problemStatementContent.innerHTML = `<p>${displayText}</p>`;
             }
             // Update the global problem statement and card state
             problemStatement = statement;
             updateCardLockStates();
         } else {
-            problemStatementContent.innerHTML = '<p class="placeholder-text">Problem statement will appear here as we understand it better</p>';
+            // Don't clear if we have stored data
+            if (!window.currentProblemData) {
+                problemStatementContent.innerHTML = '<p class="placeholder-text">Problem statement will appear here as we understand it better</p>';
+            }
         }
     }
 }
 
 function updateProblemStatementFromAI(aiMessage) {
-    // Extract problem understanding from AI message
+    // Extract problem understanding from AI message - be more comprehensive
     let problemText = '';
     
     // Look for problem-related keywords and extract relevant sentences
-    const problemKeywords = ['problem', 'challenge', 'issue', 'need', 'want', 'goal', 'objective', 'solving', 'addressing'];
+    const problemKeywords = ['problem', 'challenge', 'issue', 'need', 'want', 'goal', 'objective', 'solving', 'addressing', 'difficulty', 'struggle', 'pain'];
     const sentences = aiMessage.split(/[.!?]+/).filter(s => s.trim().length > 0);
     
     // Find sentences that contain problem-related keywords
@@ -598,32 +614,54 @@ function updateProblemStatementFromAI(aiMessage) {
     );
     
     if (problemSentences.length > 0) {
-        // Take the most relevant sentence (longest one with most keywords)
-        problemText = problemSentences.reduce((longest, current) => 
-            current.length > longest.length ? current.trim() : longest.trim()
-        );
+        // Take up to 3 most relevant sentences (not just one) to preserve more context
+        const relevantSentences = problemSentences
+            .sort((a, b) => {
+                // Sort by number of keywords found and length
+                const aKeywords = problemKeywords.filter(k => a.toLowerCase().includes(k)).length;
+                const bKeywords = problemKeywords.filter(k => b.toLowerCase().includes(k)).length;
+                if (aKeywords !== bKeywords) return bKeywords - aKeywords;
+                return b.length - a.length;
+            })
+            .slice(0, 3);
+        
+        problemText = relevantSentences.map(s => s.trim()).join('. ');
         
         // Clean up the text
         problemText = problemText.replace(/^[^a-zA-Z]*/, '').trim();
         if (problemText && !problemText.endsWith('.')) {
             problemText += '.';
         }
+    } else {
+        // If no keywords found but message is substantial, use first few sentences
+        if (aiMessage.length > 50) {
+            problemText = sentences.slice(0, 2).map(s => s.trim()).join('. ');
+            if (problemText && !problemText.endsWith('.')) {
+                problemText += '.';
+            }
+        }
     }
     
     // Update the problem statement if we found something relevant
     if (problemText && problemText.length > 10) {
-        // Store raw problem data for summary API
-        window.currentProblemData = problemText;
-        updateProblemStatement(problemText);
+        // Accumulate with existing data
+        if (window.currentProblemData) {
+            if (!window.currentProblemData.includes(problemText)) {
+                window.currentProblemData = `${window.currentProblemData}\n\n${problemText}`;
+            }
+        } else {
+            window.currentProblemData = problemText;
+        }
+        updateProblemStatement(window.currentProblemData);
     }
 }
 
 function updatePersonaFromAI(aiMessage) {
-    // Extract persona information from AI message
+    // Extract persona information from AI message - be more comprehensive
     let personaText = '';
     
     // Look for persona-related keywords and extract relevant sentences
-    const personaKeywords = ['persona', 'user', 'customer', 'target', 'demographic', 'age', 'gender', 'background', 'needs', 'wants', 'goals', 'pain points', 'behavior', 'characteristics'];
+    const personaKeywords = ['persona', 'user', 'customer', 'target', 'demographic', 'age', 'gender', 'background', 'needs', 'wants', 'goals', 'pain points', 'behavior', 'characteristics', 'occupation', 'lifestyle', 'frustration', 'motivation', 'constraint', 'limitation', 'emotional', 'mindset'];
     const sentences = aiMessage.split(/[.!?]+/).filter(s => s.trim().length > 0);
     
     // Find sentences that contain persona-related keywords
@@ -634,42 +672,91 @@ function updatePersonaFromAI(aiMessage) {
     );
     
     if (personaSentences.length > 0) {
-        // Take the most relevant sentences (up to 3)
-        personaText = personaSentences.slice(0, 3).map(s => s.trim()).join('. ');
+        // Take up to 5 most relevant sentences (not just 3) to preserve more context
+        const relevantSentences = personaSentences
+            .sort((a, b) => {
+                // Sort by number of keywords found and length
+                const aKeywords = personaKeywords.filter(k => a.toLowerCase().includes(k)).length;
+                const bKeywords = personaKeywords.filter(k => b.toLowerCase().includes(k)).length;
+                if (aKeywords !== bKeywords) return bKeywords - aKeywords;
+                return b.length - a.length;
+            })
+            .slice(0, 5);
+        
+        personaText = relevantSentences.map(s => s.trim()).join('. ');
         
         // Clean up the text
         personaText = personaText.replace(/^[^a-zA-Z]*/, '').trim();
         if (personaText && !personaText.endsWith('.')) {
             personaText += '.';
         }
+    } else {
+        // If no keywords found but message is substantial and seems persona-related, use more sentences
+        if (aiMessage.length > 100 && (aiMessage.toLowerCase().includes('they') || aiMessage.toLowerCase().includes('he') || aiMessage.toLowerCase().includes('she'))) {
+            personaText = sentences.slice(0, 4).map(s => s.trim()).join('. ');
+            if (personaText && !personaText.endsWith('.')) {
+                personaText += '.';
+            }
+        }
     }
     
     // Update the persona if we found something relevant
     if (personaText && personaText.length > 10) {
-        // Store raw persona data for summary API
-        window.currentPersonaData = personaText;
-        updatePersona(personaText);
+        // Accumulate with existing data
+        if (window.currentPersonaData) {
+            if (!window.currentPersonaData.includes(personaText)) {
+                window.currentPersonaData = `${window.currentPersonaData}\n\n${personaText}`;
+            }
+        } else {
+            window.currentPersonaData = personaText;
+        }
+        updatePersona(window.currentPersonaData);
     }
 }
 
 async function updatePersona(personaText) {
     if (personaContent) {
         if (personaText && personaText.trim()) {
+            // Always store the full persona data
+            if (!window.currentPersonaData) {
+                window.currentPersonaData = personaText;
+            } else {
+                // Accumulate: append new information if it's different and substantial
+                if (!window.currentPersonaData.includes(personaText) && personaText.length > 50) {
+                    window.currentPersonaData = `${window.currentPersonaData}\n\n${personaText}`;
+                }
+            }
+            
             try {
-                // Use stored raw data if available, otherwise use the personaText
-                const dataToSummarize = window.currentPersonaData || personaText;
+                // Try to get a summary, but fallback to showing more content if summary is too short
+                const dataToSummarize = window.currentPersonaData;
                 const summary = await callSummaryAPI(dataToSummarize, 'persona');
-                personaContent.innerHTML = `<p>${summary}</p>`;
+                // If summary is very short, show more of the original content
+                if (summary && summary.length > 50) {
+                    personaContent.innerHTML = `<p>${summary}</p>`;
+                } else {
+                    // Show a more comprehensive view with markdown parsing
+                    const preview = dataToSummarize.length > 400 ? 
+                        dataToSummarize.substring(0, 400) + '...' : 
+                        dataToSummarize;
+                    personaContent.innerHTML = parseMarkdown(preview);
+                }
             } catch (error) {
                 console.error('Error summarizing persona:', error);
-                // Fallback to showing the full persona if API fails
-                personaContent.innerHTML = parseMarkdown(personaText);
+                // Fallback: show the accumulated content with markdown parsing (truncated if too long)
+                const displayText = window.currentPersonaData.length > 600 ? 
+                    window.currentPersonaData.substring(0, 600) + '...' : 
+                    window.currentPersonaData;
+                personaContent.innerHTML = parseMarkdown(displayText);
             }
             // Update the global persona and card state
             persona = personaText;
             updateCardLockStates();
         } else {
-            personaContent.innerHTML = '<p class="placeholder-text">Persona details will appear here as we develop them</p>';
+            // Don't clear if we have stored data
+            if (!window.currentPersonaData) {
+                personaContent.innerHTML = '<p class="placeholder-text">Persona details will appear here as we develop them</p>';
+            }
         }
     }
 }
@@ -682,6 +769,12 @@ async function resetProgress() {
     reframedProblem = null;
     currentPhase = 'contextualizing';
     currentPhaseIndex = 0;
+    // Clear stored data when resetting
+    window.currentProblemData = '';
+    window.currentPersonaData = '';
+    problemStatement = '';
+    persona = null;
+    reframedProblem = null;
     await updateProblemStatement('');
     await updatePersona('');
     displayPromptsInPanel();
@@ -756,7 +849,16 @@ async function processContextualizingMessage(message) {
     // Store the initial problem statement
     if (!problemStatement) {
         problemStatement = message;
+        window.currentProblemData = message; // Store full problem data
         updateProblemStatement(message);
+    } else {
+        // Accumulate additional problem information
+        if (!window.currentProblemData || !window.currentProblemData.includes(message)) {
+            window.currentProblemData = window.currentProblemData ? 
+                `${window.currentProblemData}\n\n${message}` : 
+                message;
+            updateProblemStatement(window.currentProblemData);
+        }
     }
     
     // Add to asked questions to avoid repetition
@@ -832,7 +934,7 @@ async function processContextualizingMessage(message) {
         understandingAreas.emotionalState = true;
     }
     
-    const response = await callDeepSeekAPI(`
+    const response = await callClaudeAPI(`
 You are a product manager and design consultant helping people come up with creative ideas. You are currently in the CONTEXTUALIZING PHASE.
 
 **CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
@@ -933,7 +1035,7 @@ Keep your response concise and conversational.
     if (isConfident && understandingPercentage >= 95) {
         // AI is 95% certain - ask user for confirmation before moving
         setTimeout(async () => {
-            const confirmationResponse = await callDeepSeekAPI(`
+            const confirmationResponse = await callClaudeAPI(`
             You are in the CONTEXTUALIZING PHASE and have reached ${understandingPercentage}% understanding of the problem.
             
             Based on your analysis, you believe you have a comprehensive understanding (95%+ confidence).
@@ -985,7 +1087,7 @@ async function processPersonaMessage(message) {
         message.toLowerCase().includes('different')) {
         
         // User wants to revise the persona
-        const revisionResponse = await callDeepSeekAPI(`
+        const revisionResponse = await callClaudeAPI(`
 You are in the PERSONA PHASE and the user wants to make changes to the persona.
 
 Current persona: "${persona}"
@@ -1015,15 +1117,17 @@ FORMATTING REQUIREMENTS:
         
         addMessageToChat('ai', revisionResponse, true);
         
-        // Update the stored persona
+        // Update the stored persona and card
         persona = revisionResponse;
+        window.currentPersonaData = revisionResponse; // Store full persona data
+        await updatePersona(revisionResponse); // Update the card with full persona
         return;
     }
     
     // Add message about creating persona
     addMessageToChat('ai', 'I\'m creating a detailed persona based on what you\'ve shared. This will help guide our brainstorming process.', true);
     
-    const response = await callDeepSeekAPI(`
+    const response = await callClaudeAPI(`
 You are a product manager and design consultant in the PERSONA PHASE.
 
 **CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
@@ -1041,11 +1145,13 @@ You are a product manager and design consultant in the PERSONA PHASE.
 - Stay in the persona phase until you have a complete persona
 - DO NOT GO TO PHASE 4 OR 5 WITHOUT FIRST COMPLETING PHASES 1, 2, AND 3
 
+**CRITICAL CONTEXT - THE PROBLEM STATEMENT:**
+The user's problem statement is: "${problemStatement || 'Not yet defined'}"
+**YOU MUST REMEMBER THIS PROBLEM STATEMENT** - it is the core of what we're solving. The persona you create should be relevant to this specific problem. Always keep this problem in mind when creating the persona.
+
 The user has shared: "${message}"
 
-Previous problem context: "${problemStatement}"
-
-Your task is to create a detailed persona based on the information gathered. Focus on:
+Your task is to create a detailed persona based on the information gathered. The persona should be relevant to solving this problem: "${problemStatement || 'Not yet defined'}". Focus on:
 - Demographics (age, occupation, lifestyle if mentioned)
 - Pain points and frustrations
 - Goals and motivations
@@ -1084,8 +1190,10 @@ Keep your response concise and conversational.
     
     addMessageToChat('ai', response, true);
     
-    // Store the persona
+    // Store the persona and update the card with full content
     persona = response;
+    window.currentPersonaData = response; // Store full persona data
+    await updatePersona(response); // Update the card with full persona
     
     // Always ask for confirmation after persona creation
     setTimeout(() => {
@@ -1095,7 +1203,7 @@ Keep your response concise and conversational.
 
 // Phase 3: Problem Statement Refinement
 async function processProblemRefinementMessage(message) {
-    const response = await callDeepSeekAPI(`
+    const response = await callClaudeAPI(`
 You are a product manager and design consultant in the PROBLEM STATEMENT REFINEMENT PHASE.
 
 **CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
@@ -1112,10 +1220,13 @@ You are a product manager and design consultant in the PROBLEM STATEMENT REFINEM
 - This is the ONLY way to ensure quality outputs
 - Stay in the problem refinement phase until you have refined the problem statement
 
+**CRITICAL CONTEXT - REMEMBER THE ORIGINAL PROBLEM:**
+Original problem statement: "${problemStatement || 'Not yet defined'}"
+Persona context: "${persona || 'Not yet created'}"
+
 The user has shared: "${message}"
 
-Original problem statement: "${problemStatement}"
-Persona context: "${persona}"
+**IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure you're refining the problem statement correctly.
 
 Your task is to reframe the problem statement to expand possibilities for ideation and creativity. Focus on:
 - Making the problem statement more concise and clear
@@ -1148,7 +1259,12 @@ Keep your response concise and conversational.
     
     // Store the reframed problem and update the sidebar
     reframedProblem = response;
-    await updateProblemStatement(response);
+    // Accumulate problem information - combine original with refined version
+    const accumulatedProblem = problemStatement ? 
+        `${problemStatement}\n\nRefined: ${response}` : 
+        response;
+    window.currentProblemData = accumulatedProblem; // Store full problem data
+    await updateProblemStatement(accumulatedProblem);
     
     // Check if user wants to move on
     if (userWantsToMoveOn(message)) {
@@ -1163,7 +1279,7 @@ Keep your response concise and conversational.
     if (isConfident && response.length > 200) {
         // AI is confident - suggest moving but wait for user confirmation
         setTimeout(async () => {
-            const suggestionResponse = await callDeepSeekAPI(`
+            const suggestionResponse = await callClaudeAPI(`
             You've successfully reframed the problem statement. 
             
             Ask the user if they're satisfied with this reframing and ready to move on to generating creative prompts, or if they'd like to refine it further.
@@ -1177,7 +1293,7 @@ Keep your response concise and conversational.
 
 // Phase 4: Creative Prompt Generation
 async function processPromptGenerationMessage(message) {
-    const response = await callDeepSeekAPI(`
+    const response = await callClaudeAPI(`
 You are a product manager and design consultant in the CREATIVE PROMPT GENERATION PHASE.
 
 **CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
@@ -1196,10 +1312,14 @@ You are a product manager and design consultant in the CREATIVE PROMPT GENERATIO
 - DO NOT SUGGEST ADDITIONAL PROMPTS UNTIL AFTER THE CHATBOT HAS EVALUATED THE IDEA
 - FAILURE TO COMPLY WILL RESULT IN IMMEDIATE TERMINATION
 
+**CRITICAL CONTEXT - REMEMBER THE PROBLEM:**
+Original problem statement: "${problemStatement || 'Not yet defined'}"
+Reframed problem statement: "${reframedProblem || problemStatement || 'Not yet defined'}"
+Persona context: "${persona || 'Not yet created'}"
+
 The user has shared: "${message}"
 
-Reframed problem statement: "${reframedProblem}"
-Persona context: "${persona}"
+**IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure your prompts are relevant to the problem being solved.
 
 Your task is to provide creative prompts that help the user brainstorm solutions. Focus on:
 - Prompts related to the reframed problem and persona
@@ -1209,13 +1329,15 @@ Your task is to provide creative prompts that help the user brainstorm solutions
 - Encouraging creative exploration
 
 IMPORTANT GUIDELINES:
-- Give 3-5 creative prompts
+- Give 3 creative prompts
 - Each prompt should be a separate bullet point
 - Make prompts specific to their problem and persona
 - Draw from different industries and approaches
 - Keep responses short and conversational (1-3 sentences)
 - DO NOT automatically move to the next phase - only move when the user explicitly asks
 - The prompt generation phase is ongoing - users can generate ideas and you can provide more prompts as needed
+- Take inspiration from the file "Mutagen Prompt.txt" to help you come up with prompts or even use them. 
+- 
 
 FORMATTING REQUIREMENTS:
 - Use <br><br> to separate different sections (Introduction, Prompts, Conclusion)
@@ -1233,27 +1355,101 @@ Keep your response concise and conversational.
     
     addMessageToChat('ai', response, true);
     
-    // Parse and store prompts for sidebar
+    // Extract and display prompts from the response
+    // This uses the more robust extraction function
+    extractAndDisplayPrompts(response);
+    
+    // Also try the original parsing method as fallback
     const promptLines = response.split('\n').filter(line => 
         (line.trim().match(/^[-*•]\s/) || line.trim().match(/^\d+\.\s/)) && line.trim().length > 10
     );
     
-    console.log('Parsed prompt lines:', promptLines);
-    
-    generatedPrompts = promptLines.map((line, index) => ({
-        id: Date.now() + index,
-        text: line.replace(/^[-*•]|\d+\.\s*/, ''),
-        source: 'AI Generated'
-    }));
+    if (promptLines.length > 0 && generatedPrompts.length === 0) {
+        // If extraction didn't work but we found prompts with the old method, use those
+        generatedPrompts = promptLines.map((line, index) => ({
+            id: Date.now() + index,
+            text: line.replace(/^[-*•]|\d+\.\s*/, ''),
+            source: 'AI Generated'
+        }));
+        displayPromptsInPanel();
+    }
     
     console.log('Generated prompts:', generatedPrompts);
-    
-    // Display prompts in sidebar
-    displayPromptsInPanel();
     
     // Ideation is now the final phase - no auto-move needed
 }
 
+
+// Extract prompts from AI response and display them
+function extractAndDisplayPrompts(aiResponse) {
+    if (!aiResponse || typeof aiResponse !== 'string') return;
+    
+    // More robust prompt extraction - look for various formats
+    const lines = aiResponse.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    
+    const promptPatterns = [
+        /^[-*•]\s+(.+)$/,           // Bullet points: - prompt, * prompt, • prompt
+        /^\d+\.\s+(.+)$/,           // Numbered: 1. prompt, 2. prompt
+        /^[a-z]\)\s+(.+)$/i,        // Lettered: a) prompt, b) prompt
+        /^[ivx]+\)\s+(.+)$/i,       // Roman numerals: i) prompt, ii) prompt
+    ];
+    
+    const extractedPrompts = [];
+    
+    for (const line of lines) {
+        // Skip HTML tags and empty lines
+        if (line.startsWith('<') || line.length < 10) continue;
+        
+        // Try each pattern
+        for (const pattern of promptPatterns) {
+            const match = line.match(pattern);
+            if (match && match[1]) {
+                const promptText = match[1].trim();
+                // Make sure it's substantial (not just a word or two)
+                if (promptText.length > 15 && !extractedPrompts.includes(promptText)) {
+                    extractedPrompts.push(promptText);
+                    break;
+                }
+            }
+        }
+        
+        // Also check for prompts that might be in HTML format but still readable
+        // Remove HTML tags and check if it looks like a prompt
+        const textOnly = line.replace(/<[^>]*>/g, '').trim();
+        if (textOnly.length > 15 && textOnly.length < 200) {
+            // Check if it starts with common prompt indicators
+            const promptIndicators = ['how might we', 'what if', 'imagine', 'consider', 'explore', 'think about', 'brainstorm'];
+            const lowerText = textOnly.toLowerCase();
+            if (promptIndicators.some(indicator => lowerText.startsWith(indicator)) && 
+                !extractedPrompts.includes(textOnly)) {
+                extractedPrompts.push(textOnly);
+            }
+        }
+    }
+    
+    // If we found prompts, add them to generatedPrompts
+    if (extractedPrompts.length > 0) {
+        const newPrompts = extractedPrompts.map((text, index) => {
+            // Check if this prompt already exists
+            const exists = generatedPrompts.some(p => 
+                p.text.toLowerCase().trim() === text.toLowerCase().trim()
+            );
+            if (exists) return null;
+            
+            return {
+                id: Date.now() + index + Math.random() * 1000,
+                text: text,
+                source: 'AI Generated'
+            };
+        }).filter(p => p !== null);
+        
+        if (newPrompts.length > 0) {
+            generatedPrompts = [...generatedPrompts, ...newPrompts];
+            displayPromptsInPanel();
+            console.log('Extracted and displayed prompts:', newPrompts);
+        }
+    }
+}
 
 // Display prompts in side panel
 function displayPromptsInPanel() {
@@ -1338,7 +1534,8 @@ function autoResizeTextarea(textarea) {
 
 // Phase 5: Evaluation
 async function processEvaluationMessage(message) {
-    const response = await callDeepSeekAPI(`
+    // Ensure problem statement is always included in evaluation context
+    const response = await callClaudeAPI(`
 You are a product manager and design consultant in the EVALUATION PHASE.
 
 **CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
@@ -1355,10 +1552,14 @@ You are a product manager and design consultant in the EVALUATION PHASE.
 - This is the ONLY way to ensure quality outputs
 - Stay in the evaluation phase until you have provided comprehensive feedback
 
+**CRITICAL CONTEXT - REMEMBER THE PROBLEM:**
+Original problem statement: "${problemStatement || 'Not yet defined'}"
+Refined problem statement: "${reframedProblem || problemStatement || 'Not yet defined'}"
+Persona context: "${persona || 'Not yet created'}"
+
 The user has shared: "${message}"
 
-Refined problem statement: "${reframedProblem || problemStatement}"
-Persona context: "${persona}"
+**IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure your evaluation is relevant to the problem being solved.
 
 Your task is to provide constructive feedback on the user's idea. Focus on:
 - Highlighting the strengths of the idea
@@ -1401,7 +1602,7 @@ Keep your response concise and conversational.
     // After evaluation, suggest generating new prompts but don't auto-move
     if (response.length > 200) {
         setTimeout(async () => {
-            const suggestionResponse = await callDeepSeekAPI(`
+            const suggestionResponse = await callClaudeAPI(`
             You've provided feedback on the user's idea.
             
             Ask the user if they'd like to generate new prompts to continue brainstorming, or if they have more ideas to share.
@@ -1420,12 +1621,17 @@ async function evaluateIdea(idea) {
         currentPhase = 'evaluation';
         updateCardLockStates();
         
-        const evaluation = await callDeepSeekAPI(`
+        const evaluation = await callClaudeAPI(`
 You are evaluating a brainstorming idea. Provide constructive feedback on this idea:
 
-Idea: "${idea}"
-Problem context: "${problemStatement || 'Not defined'}"
-Persona: "${persona || 'Not defined'}"
+**CRITICAL CONTEXT - REMEMBER THE PROBLEM:**
+Original problem statement: "${problemStatement || 'Not yet defined'}"
+Refined problem statement: "${reframedProblem || problemStatement || 'Not yet defined'}"
+Persona context: "${persona || 'Not yet created'}"
+
+Idea to evaluate: "${idea}"
+
+**IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure your evaluation is relevant to the problem being solved.
 
 Provide feedback that:
 - Highlights the strengths of the idea
@@ -1447,7 +1653,7 @@ FORMATTING REQUIREMENTS:
         
         // Suggest generating new prompts after evaluation, but don't auto-move
         setTimeout(async () => {
-            const suggestionResponse = await callDeepSeekAPI(`
+            const suggestionResponse = await callClaudeAPI(`
             You've evaluated the user's idea.
             
             Ask the user if they'd like to generate new prompts to continue brainstorming, or if they have more ideas to share.
@@ -1464,7 +1670,7 @@ FORMATTING REQUIREMENTS:
 // Generate new brainstorming prompts
 async function generateNewPrompts() {
     try {
-        const response = await callDeepSeekAPI(`
+        const response = await callClaudeAPI(`
 You are in the CREATIVE PROMPT GENERATION PHASE and need to generate fresh brainstorming prompts.
 
 Problem statement: "${problemStatement || 'Not defined'}"
@@ -1522,7 +1728,7 @@ async function generateSuggestedResponses() {
     let suggestions = [];
 
     try {
-        const response = await callDeepSeekAPI(`
+        const response = await callClaudeAPI(`
 You are helping generate suggested responses for a user in a brainstorming session. Based on the current conversation context, suggest 3-4 responses that the USER might want to say next.
 
 Current phase: ${phaseName} (Phase ${phaseIndex + 1} of 5)
@@ -1866,7 +2072,7 @@ function loadSavedIdeas() {
 
 
 // Utility Functions
-async function callDeepSeekAPI(prompt) {
+async function callClaudeAPI(prompt, includeHistory = true) {
     const proxyPath = getProxyPath();
     console.log('Calling Claude API via proxy:', proxyPath);
     
@@ -1876,6 +2082,22 @@ async function callDeepSeekAPI(prompt) {
     }
     
     try {
+        // Build messages array with conversation history
+        let messages = [];
+        
+        if (includeHistory && chatHistory.length > 0) {
+            // Convert chatHistory to API message format
+            // Take last 20 messages to avoid token limits while maintaining context
+            const recentHistory = chatHistory.slice(-20);
+            messages = recentHistory.map(msg => ({
+                role: msg.sender === 'ai' ? 'assistant' : 'user',
+                content: msg.content
+            }));
+        }
+        
+        // Add the current prompt as the latest user message
+        messages.push({ role: 'user', content: prompt });
+        
         // Route through local proxy to avoid CORS and keep key server-side
         console.log('Sending POST request to:', proxyPath);
         const response = await fetch(proxyPath, {
@@ -1885,9 +2107,7 @@ async function callDeepSeekAPI(prompt) {
             },
             body: JSON.stringify({
                 model: 'claude', // Model name is converted by worker to Claude
-                messages: [
-                    { role: 'user', content: prompt }
-                ],
+                messages: messages,
                 max_tokens: 1000,
                 temperature: 0.7
             })
