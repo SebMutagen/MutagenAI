@@ -817,12 +817,9 @@ async function processUserMessage(message) {
             case 'promptGeneration':
                 await processPromptGenerationMessage(message);
                 // Save idea if it's substantial (not just a question or short response)
+                // Don't automatically evaluate - let the user decide when to evaluate
                 if (message.length > 20 && !message.toLowerCase().includes('?')) {
                     saveIdea(message);
-                    // Automatically evaluate the idea
-                    setTimeout(() => {
-                        evaluateIdea(message);
-                    }, 1000);
                 }
                 break;
             case 'evaluation':
@@ -934,21 +931,44 @@ async function processContextualizingMessage(message) {
         understandingAreas.emotionalState = true;
     }
     
+    // Check if user wants to move on or agrees to AI's previous suggestion BEFORE generating response
+    const lastAIMessage = chatHistory.filter(msg => msg.sender === 'ai').slice(-1)[0];
+    const aiSuggestedMovingOn = lastAIMessage && (
+        lastAIMessage.content.toLowerCase().includes('ready to move on') ||
+        lastAIMessage.content.toLowerCase().includes('move on to') ||
+        lastAIMessage.content.toLowerCase().includes('proceed to') ||
+        lastAIMessage.content.toLowerCase().includes('next phase')
+    );
+    
+    // If user wants to move on, transition immediately and send transition message
+    if (userWantsToMoveOn(message) || (aiSuggestedMovingOn && isAffirmativeResponse(message))) {
+        await moveToNextPhase();
+        // Don't include history - this is just a transition acknowledgment, not a response to the user
+        // Send a simple, hardcoded transition message to avoid AI generating multiple responses
+        const transitionMessage = "Great! Let's move on to developing a detailed persona. This will help us understand your target user better.";
+        addMessageToChat('ai', transitionMessage, true);
+        return;
+        addMessageToChat('ai', transitionResponse, true);
+        return;
+    }
+    
     const response = await callClaudeAPI(`
 You are a product manager and design consultant helping people come up with creative ideas. You are currently in the CONTEXTUALIZING PHASE.
 
-**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+**CURRENT PHASE: CONTEXTUALIZING**
+
+You are in the contextualizing phase. The phases are:
 1. Contextualizing (CURRENT PHASE)
 2. Persona Development
 3. Problem Statement Refinement
 4. Creative Prompt Generation
 5. Evaluation
 
-**STRICT REQUIREMENTS:**
-- You MUST complete the contextualizing phase before moving to persona
-- You CANNOT skip phases or jump ahead
-- This is the ONLY way to ensure quality outputs
-- Stay in the contextualizing phase until you have comprehensive understanding
+**IMPORTANT: USER CONTROL**
+- The user can move to the next phase at any time if they want to
+- If the user asks to move on, you should support their decision
+- Do NOT refuse or block the user from moving forward
+- You can suggest staying longer if you think more information would help, but respect the user's choice
 
 The user has shared: "${message}"
 
@@ -976,76 +996,46 @@ Your role is to understand more about the user's problem through open-ended ques
 - Emotional State: ${understandingAreas.emotionalState ? '✓ Covered' : '❌ Need more info'}
 
 **IMPORTANT GUIDELINES:**
-- Ask EXACTLY ONE open-ended question at a time (nothing that can be answered with yes/no)
-- NEVER ask multiple questions in the same response
-- Be conversational and natural, don't use bullet points
-- Ask "Why?" when appropriate
-- Ask disqualifying questions if needed
+- Be conversational and natural
+- Ask questions when appropriate to understand the problem better
 - Don't repeat questions already asked
 - Focus on areas that haven't been covered yet
-- DO NOT automatically move to the next phase - only move when the user explicitly asks or when you are 95%+ confident
-- If you reach 95%+ confidence in your understanding, you may suggest moving on, but wait for user confirmation
-- Ask follow-up questions if you need more clarity on any aspect
-- CRITICAL: Only ask ONE question per response to avoid overwhelming the user
-- DO NOT rush to the next phase - take time to truly understand the problem
-- If the user explicitly asks to move on, acknowledge their request
+- You can suggest moving on when you feel you have enough information, but the user can move on at any time
+- If the user asks to move on, support their decision - do NOT refuse or say it's too early
+- Ask follow-up questions if you need more clarity, but respect the user's choice to move forward
+- If the user explicitly asks to move on, acknowledge and support their request
 
 **FORMATTING REQUIREMENTS:**
 - Use <br><br> to separate different thoughts
-- Keep each paragraph to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
 - Use <strong>HTML tags</strong> for emphasis (NOT markdown asterisks)
 - NEVER use markdown syntax like **bold** or *italic* - always use HTML tags like <strong>bold</strong> and <em>italic</em>
 - Break up your response into digestible chunks
-- NEVER include multiple questions in your response
-- Focus on ONE question only to avoid overwhelming the user
 
 Current understanding level: ${Math.round((Object.values(understandingAreas).filter(Boolean).length / 6) * 100)}%
 Understanding areas covered: ${Object.values(understandingAreas).filter(Boolean).length}/6
 
 **PHASE TRANSITION RULES:**
-- DO NOT automatically move to the next phase
-- Only move when the user explicitly asks to move on (e.g., "let's move on", "next phase", "continue")
-- If you reach 95%+ confidence in your understanding, you may suggest moving on, but wait for user confirmation
-- Never force a phase transition - always wait for user approval
-
-**EXAMPLE OF CORRECT BEHAVIOR:**
-Good: "What specific challenges do you face when trying to solve this problem?"
-Bad: "What challenges do you face? Also, who else is affected by this problem? And when does this typically happen?"
+- The user controls when to move to the next phase
+- If the user asks to move on (e.g., "let's move on", "next phase", "continue", "yes"), support their decision
+- You can suggest staying longer if helpful, but NEVER refuse or block the user from moving forward
+- IMPORTANT: Include any suggestions in your SINGLE response - do not send multiple messages
+- CRITICAL: If the user wants to move on, the system will transition. Do NOT say "it's too early" or refuse - always support the user's choice.
 
 Keep your response concise and conversational.
     `);
     
-    addMessageToChat('ai', response, true);
-    
     // Calculate understanding percentage
     const understandingPercentage = Math.round((Object.values(understandingAreas).filter(Boolean).length / 6) * 100);
     
-    // Check if user wants to move on
-    if (userWantsToMoveOn(message)) {
-        // User explicitly requested to move on
-        setTimeout(async () => {
-            await moveToNextPhase();
-        }, 1000);
-        return;
-    }
+    // Send the main response
+    addMessageToChat('ai', response, true);
     
-    // Check if AI is 95% certain (only move if confidence is >= 95%)
+    // Check if AI is 95% certain (only suggest moving, don't auto-move)
     const isConfident = await checkAIConfidence('contextualizing', response, understandingPercentage);
     if (isConfident && understandingPercentage >= 95) {
-        // AI is 95% certain - ask user for confirmation before moving
-        setTimeout(async () => {
-            const confirmationResponse = await callClaudeAPI(`
-            You are in the CONTEXTUALIZING PHASE and have reached ${understandingPercentage}% understanding of the problem.
-            
-            Based on your analysis, you believe you have a comprehensive understanding (95%+ confidence).
-            
-            Ask the user if they're ready to move on to the PERSONA DEVELOPMENT phase, or if they'd like to continue exploring. Be conversational and give them the choice.
-            
-            Keep it brief - just 1-2 sentences.
-            `);
-            addMessageToChat('ai', confirmationResponse, true);
-        }, 1000);
+        // AI is 95% certain - include suggestion in the response itself, don't send separate message
+        // The suggestion should already be in the response from the prompt
     }
 }
 
@@ -1053,7 +1043,7 @@ Keep your response concise and conversational.
 async function processPersonaMessage(message) {
     console.log('processPersonaMessage called with:', message);
     
-    // Check if user is confirming the persona (affirmative response)
+    // Check if user is confirming the persona (affirmative response) or wants to move on
     // Look at the last AI message to see if it asked for confirmation
     const lastAIMessage = chatHistory.filter(msg => msg.sender === 'ai').slice(-1)[0];
     const askedForConfirmation = lastAIMessage && (
@@ -1065,17 +1055,21 @@ async function processPersonaMessage(message) {
     
     // If AI asked for confirmation and user gives affirmative response, move on
     if (askedForConfirmation && isAffirmativeResponse(message)) {
-        setTimeout(async () => {
-            await moveToNextPhase();
-        }, 1000);
+        // Transition phase first
+        await moveToNextPhase();
+        // Send a simple, hardcoded transition message to avoid AI generating multiple responses
+        const transitionMessage = "Perfect! Now let's refine the problem statement to expand possibilities for creative solutions.";
+        addMessageToChat('ai', transitionMessage, true);
         return;
     }
     
     // Check if user wants to move on explicitly
     if (userWantsToMoveOn(message)) {
-        setTimeout(async () => {
-            await moveToNextPhase();
-        }, 1000);
+        // Transition phase first
+        await moveToNextPhase();
+        // Send a simple, hardcoded transition message to avoid AI generating multiple responses
+        const transitionMessage = "Perfect! Now let's refine the problem statement to expand possibilities for creative solutions.";
+        addMessageToChat('ai', transitionMessage, true);
         return;
     }
     
@@ -1124,26 +1118,24 @@ FORMATTING REQUIREMENTS:
         return;
     }
     
-    // Add message about creating persona
-    addMessageToChat('ai', 'I\'m creating a detailed persona based on what you\'ve shared. This will help guide our brainstorming process.', true);
-    
+    // Don't send a separate message - let the AI response include this context
     const response = await callClaudeAPI(`
 You are a product manager and design consultant in the PERSONA PHASE.
 
-**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+**CURRENT PHASE: PERSONA DEVELOPMENT**
+
+You are in the persona development phase. The phases are:
 1. Contextualizing (COMPLETED)
 2. Persona Development (CURRENT PHASE)
 3. Problem Statement Refinement
 4. Creative Prompt Generation
 5. Evaluation
 
-**STRICT REQUIREMENTS:**
-- You MUST complete the persona phase before moving to problem refinement
-- You CANNOT skip phases or jump ahead
-- You WILL LOSE YOUR JOB if you cannot follow this sequence
-- This is the ONLY way to ensure quality outputs
-- Stay in the persona phase until you have a complete persona
-- DO NOT GO TO PHASE 4 OR 5 WITHOUT FIRST COMPLETING PHASES 1, 2, AND 3
+**IMPORTANT: USER CONTROL**
+- The user can move to the next phase at any time if they want to
+- If the user asks to move on, you should support their decision
+- Do NOT refuse or block the user from moving forward
+- You can suggest staying longer if you think more information would help, but respect the user's choice
 
 **CRITICAL CONTEXT - THE PROBLEM STATEMENT:**
 The user's problem statement is: "${problemStatement || 'Not yet defined'}"
@@ -1165,60 +1157,72 @@ IMPORTANT GUIDELINES:
 - CLEARLY distinguish between what the user provided vs. what you extrapolated
 - Use quotes for any direct user statements
 - Be specific and detailed - this persona will guide ideation
-- DO NOT automatically move to the next phase - only move when the user explicitly asks or when you are 95%+ confident the persona is complete
-- If you reach 95%+ confidence that the persona is complete, you may suggest moving on, but wait for user confirmation
-- Present the persona in a clear, organized way
+- You can suggest moving on when you feel the persona is complete, but the user can move on at any time
+- If the user asks to move on, support their decision - do NOT refuse or say it's too early
+- Present the persona naturally and let the conversation flow
+- IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 
 FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different sections (Demographics, Pain Points, Goals, etc.)
+- Use <br><br> to separate different sections
 - For each section, clearly state what was provided vs. extrapolated
 - Use quotes for user-provided information: "User said: 'exact quote'"
 - Use "I extrapolated:" for AI-generated details
-- Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
 - Use <strong>HTML tags</strong> for section headers and key details (NOT markdown **bold**)
 - NEVER use markdown syntax like **bold** or *italic* - always use HTML tags
 - Break up your response into digestible chunks
 
-EXAMPLE FORMAT:
-<strong>Demographics:</strong><br>
-User provided: "I'm a 28-year-old marketing manager"<br>
-I extrapolated: Based on this, they likely have a college degree and work in a corporate environment with standard business hours.
-
 Keep your response concise and conversational.
     `);
-    
-    addMessageToChat('ai', response, true);
     
     // Store the persona and update the card with full content
     persona = response;
     window.currentPersonaData = response; // Store full persona data
     await updatePersona(response); // Update the card with full persona
     
-    // Always ask for confirmation after persona creation
-    setTimeout(() => {
-        addMessageToChat('ai', 'I\'ve created a detailed persona based on our conversation. <strong>Does this persona accurately reflect your target user, or would you like to make any changes or additions?</strong>', true);
-    }, 2000);
+    // Include confirmation question in the main response, don't send separate message
+    // The response should already include asking for confirmation based on the prompt
+    addMessageToChat('ai', response, true);
 }
 
 // Phase 3: Problem Statement Refinement
 async function processProblemRefinementMessage(message) {
+    // Check if AI suggested moving on in previous message and user agrees BEFORE generating response
+    const lastAIMessage = chatHistory.filter(msg => msg.sender === 'ai').slice(-1)[0];
+    const aiSuggestedMovingOn = lastAIMessage && (
+        lastAIMessage.content.toLowerCase().includes('ready to move on') ||
+        lastAIMessage.content.toLowerCase().includes('move on to') ||
+        lastAIMessage.content.toLowerCase().includes('proceed to') ||
+        lastAIMessage.content.toLowerCase().includes('next phase') ||
+        lastAIMessage.content.toLowerCase().includes('satisfied with this reframing')
+    );
+    
+    // If user wants to move on, transition immediately and send transition message
+    if (userWantsToMoveOn(message) || (aiSuggestedMovingOn && isAffirmativeResponse(message))) {
+        await moveToNextPhase();
+        // Send a simple, hardcoded transition message to avoid AI generating multiple responses
+        const transitionMessage = "Excellent! Now let's generate some creative prompts to help you brainstorm solutions.";
+        addMessageToChat('ai', transitionMessage, true);
+        return;
+    }
+    
     const response = await callClaudeAPI(`
 You are a product manager and design consultant in the PROBLEM STATEMENT REFINEMENT PHASE.
 
-**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+**CURRENT PHASE: PROBLEM STATEMENT REFINEMENT**
+
+You are in the problem statement refinement phase. The phases are:
 1. Contextualizing (COMPLETED)
 2. Persona Development (COMPLETED)
 3. Problem Statement Refinement (CURRENT PHASE)
 4. Creative Prompt Generation
 5. Evaluation
 
-**STRICT REQUIREMENTS:**
-- You MUST complete the problem refinement phase before moving to prompt generation
-- You CANNOT skip phases or jump ahead
-- There is a $1,000,000 fine if you cannot follow this sequence
-- This is the ONLY way to ensure quality outputs
-- Stay in the problem refinement phase until you have refined the problem statement
+**IMPORTANT: USER CONTROL**
+- The user can move to the next phase at any time if they want to
+- If the user asks to move on, you should support their decision
+- Do NOT refuse or block the user from moving forward
+- You can suggest staying longer if you think more refinement would help, but respect the user's choice
 
 **CRITICAL CONTEXT - REMEMBER THE ORIGINAL PROBLEM:**
 Original problem statement: "${problemStatement || 'Not yet defined'}"
@@ -1241,12 +1245,13 @@ IMPORTANT GUIDELINES:
 - Sometimes make it broader, sometimes more specific
 - Enhance the user's understanding of the problem
 - Present the reframed statement clearly
-- DO NOT automatically move to the next phase - only move when the user explicitly asks or when you are 95%+ confident the reframing is complete
-- If you reach 95%+ confidence that the reframing is effective, you may suggest moving on, but wait for user confirmation
+- You can suggest moving on when you feel the reframing is effective, but the user can move on at any time
+- If the user asks to move on, support their decision - do NOT refuse or say it's too early
+- IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
+- CRITICAL: If the user wants to move on, the system will transition. Do NOT say "it's too early" or refuse - always support the user's choice.
 
 FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different sections (Original Problem, Key Changes, Reframed Problem)
-- Keep each section to 1-2 sentences maximum
+- Use <br><br> to separate different sections
 - Be concise and direct - avoid long blocks of text
 - Use <strong>HTML tags</strong> for section headers and key changes (NOT markdown **bold**)
 - NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
@@ -1254,8 +1259,6 @@ FORMATTING REQUIREMENTS:
 
 Keep your response concise and conversational.
     `);
-    
-    addMessageToChat('ai', response, true);
     
     // Store the reframed problem and update the sidebar
     reframedProblem = response;
@@ -1266,51 +1269,43 @@ Keep your response concise and conversational.
     window.currentProblemData = accumulatedProblem; // Store full problem data
     await updateProblemStatement(accumulatedProblem);
     
-    // Check if user wants to move on
-    if (userWantsToMoveOn(message)) {
-        setTimeout(async () => {
-            await moveToNextPhase();
-        }, 1000);
-        return;
-    }
+    // Send the main response
+    addMessageToChat('ai', response, true);
     
     // Check if AI is 95% certain (only suggest moving, don't auto-move)
-    const isConfident = await checkAIConfidence('problemRefinement', response);
-    if (isConfident && response.length > 200) {
-        // AI is confident - suggest moving but wait for user confirmation
-        setTimeout(async () => {
-            const suggestionResponse = await callClaudeAPI(`
-            You've successfully reframed the problem statement. 
-            
-            Ask the user if they're satisfied with this reframing and ready to move on to generating creative prompts, or if they'd like to refine it further.
-            
-            Keep it brief - just 1-2 sentences.
-            `);
-            addMessageToChat('ai', suggestionResponse, true);
-        }, 1000);
-    }
+    // The suggestion should already be in the response from the prompt
 }
 
 // Phase 4: Creative Prompt Generation
 async function processPromptGenerationMessage(message) {
+    // Check if user wants to evaluate an idea
+    if (message.toLowerCase().includes('evaluate') || message.toLowerCase().includes('feedback') || message.toLowerCase().includes('what do you think')) {
+        // Transition to evaluation phase
+        currentPhase = 'evaluation';
+        currentPhaseIndex = 4;
+        updateCardLockStates();
+        // Call evaluation
+        await evaluateIdea(message);
+        return;
+    }
+    
     const response = await callClaudeAPI(`
 You are a product manager and design consultant in the CREATIVE PROMPT GENERATION PHASE.
 
-**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+**CURRENT PHASE: CREATIVE PROMPT GENERATION**
+
+You are in the creative prompt generation phase. The phases are:
 1. Contextualizing (COMPLETED)
 2. Persona Development (COMPLETED)
 3. Problem Statement Refinement (COMPLETED)
 4. Creative Prompt Generation (CURRENT PHASE)
 5. Evaluation
 
-**STRICT REQUIREMENTS:**
-- You MUST complete the prompt generation phase before moving to evaluation
-- You CANNOT skip phases or jump ahead
-- You WILL LOSE YOUR JOB if you cannot follow this sequence
-- This is the ONLY way to ensure quality outputs
-- Stay in the prompt generation phase until you have generated creative prompts
-- DO NOT SUGGEST ADDITIONAL PROMPTS UNTIL AFTER THE CHATBOT HAS EVALUATED THE IDEA
-- FAILURE TO COMPLY WILL RESULT IN IMMEDIATE TERMINATION
+**IMPORTANT: USER CONTROL**
+- The user can move to the next phase at any time if they want to
+- If the user asks to move on, you should support their decision
+- Do NOT refuse or block the user from moving forward
+- You can suggest staying longer if you think more prompts would help, but respect the user's choice
 
 **CRITICAL CONTEXT - REMEMBER THE PROBLEM:**
 Original problem statement: "${problemStatement || 'Not yet defined'}"
@@ -1329,26 +1324,22 @@ Your task is to provide creative prompts that help the user brainstorm solutions
 - Encouraging creative exploration
 
 IMPORTANT GUIDELINES:
-- Give 3 creative prompts
-- Each prompt should be a separate bullet point
+- Provide creative prompts that help the user brainstorm solutions
 - Make prompts specific to their problem and persona
 - Draw from different industries and approaches
-- Keep responses short and conversational (1-3 sentences)
-- DO NOT automatically move to the next phase - only move when the user explicitly asks
+- Keep responses conversational
+- The user can move to the next phase at any time - support their decision if they ask to move on
 - The prompt generation phase is ongoing - users can generate ideas and you can provide more prompts as needed
-- Take inspiration from the file "Mutagen Prompt.txt" to help you come up with prompts or even use them. 
-- 
+- If the user asks to move on, do NOT refuse or say it's too early
+- Take inspiration from the file "Mutagen Prompt.txt" to help you come up with prompts or even use them
+- IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 
 FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different sections (Introduction, Prompts, Conclusion)
-- Format each prompt on a separate line with proper line breaks
-- Use bullet points or numbered lists for prompts
-- Keep each section to 1-2 sentences maximum
+- Use <br><br> to separate different sections
 - Be concise and direct - avoid long blocks of text
 - Use <strong>HTML tags</strong> for emphasis (NOT markdown **bold**)
 - NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
 - Break up your response into digestible chunks
-- Structure prompts clearly with line breaks between each one
 
 Keep your response concise and conversational.
     `);
@@ -1538,19 +1529,20 @@ async function processEvaluationMessage(message) {
     const response = await callClaudeAPI(`
 You are a product manager and design consultant in the EVALUATION PHASE.
 
-**CRITICAL: YOU MUST FOLLOW THE EXACT 5-PHASE SEQUENCE:**
+**CURRENT PHASE: EVALUATION**
+
+You are in the evaluation phase. The phases are:
 1. Contextualizing (COMPLETED)
 2. Persona Development (COMPLETED)
 3. Problem Statement Refinement (COMPLETED)
 4. Creative Prompt Generation (COMPLETED)
 5. Evaluation (CURRENT PHASE)
 
-**STRICT REQUIREMENTS:**
-- You MUST complete the evaluation phase before cycling back to prompt generation
-- You CANNOT skip phases or jump ahead
-- There is a $1,000,000 fine if you cannot follow this sequence
-- This is the ONLY way to ensure quality outputs
-- Stay in the evaluation phase until you have provided comprehensive feedback
+**IMPORTANT: USER CONTROL**
+- The user can move to the next phase at any time if they want to
+- If the user asks to move on, you should support their decision
+- Do NOT refuse or block the user from moving forward
+- You can suggest staying longer if you think more evaluation would help, but respect the user's choice
 
 **CRITICAL CONTEXT - REMEMBER THE PROBLEM:**
 Original problem statement: "${problemStatement || 'Not yet defined'}"
@@ -1573,8 +1565,9 @@ IMPORTANT GUIDELINES:
 - Ask probing questions to help them think deeper
 - Suggest concrete improvements
 - Connect the idea back to the persona's needs
-- DO NOT automatically move to the next phase - only move when the user explicitly asks
-- After evaluation, you can suggest generating new prompts, but wait for user confirmation
+- The user can move to the next phase at any time - support their decision if they ask to move on
+- After evaluation, you can suggest generating new prompts, but the user controls when to move forward
+- If the user asks to move on, do NOT refuse or say it's too early
 
 FORMATTING REQUIREMENTS:
 - Use <br><br> to separate different sections (Strengths, Challenges, Suggestions)
@@ -1587,31 +1580,21 @@ FORMATTING REQUIREMENTS:
 Keep your response concise and conversational.
     `);
     
-    addMessageToChat('ai', response, true);
-    
-    // Check if user wants to move on or generate new prompts
+    // Check if user wants to move on or generate new prompts BEFORE sending response
     if (userWantsToMoveOn(message) || message.toLowerCase().includes('new prompt') || message.toLowerCase().includes('generate prompt')) {
-        setTimeout(async () => {
-            currentPhase = 'promptGeneration';
-            updateCardLockStates();
-            await generateNewPrompts();
-        }, 1000);
+        // Transition back to prompt generation phase
+        currentPhase = 'promptGeneration';
+        currentPhaseIndex = 3; // Set to promptGeneration index
+        updateCardLockStates();
+        // Generate new prompts and send single response
+        await generateNewPrompts();
         return;
     }
     
-    // After evaluation, suggest generating new prompts but don't auto-move
-    if (response.length > 200) {
-        setTimeout(async () => {
-            const suggestionResponse = await callClaudeAPI(`
-            You've provided feedback on the user's idea.
-            
-            Ask the user if they'd like to generate new prompts to continue brainstorming, or if they have more ideas to share.
-            
-            Keep it brief - just 1-2 sentences.
-            `);
-            addMessageToChat('ai', suggestionResponse, true);
-        }, 2000);
-    }
+    // Send the main response
+    addMessageToChat('ai', response, true);
+    
+    // Don't send additional messages - let the evaluation response speak for itself
 }
 
 // Automatically evaluate ideas
@@ -1651,17 +1634,8 @@ FORMATTING REQUIREMENTS:
         
         addMessageToChat('ai', evaluation, true);
         
-        // Suggest generating new prompts after evaluation, but don't auto-move
-        setTimeout(async () => {
-            const suggestionResponse = await callClaudeAPI(`
-            You've evaluated the user's idea.
-            
-            Ask the user if they'd like to generate new prompts to continue brainstorming, or if they have more ideas to share.
-            
-            Keep it brief - just 1-2 sentences.
-            `);
-            addMessageToChat('ai', suggestionResponse, true);
-        }, 2000);
+        // Don't send additional messages - let the evaluation response speak for itself
+        // The evaluation should already include suggestions for next steps
   } catch (error) {
         console.error('Error evaluating idea:', error);
     }
@@ -1687,29 +1661,34 @@ Generate 2-3 NEW creative prompts that:
 - Are specific to their problem and persona
 - Avoid repeating previous prompt themes
 
-Format each prompt on a new line with a number (1., 2., etc.)
-Keep them concise and actionable.
+IMPORTANT FORMATTING:
+- Start with a brief introduction (1 sentence)
+- Format each prompt on a new line with a number (1., 2., etc.) or bullet point
+- Use <br><br> to separate sections
+- Use <strong>HTML tags</strong> for emphasis (NOT markdown)
+- Keep the entire response concise and conversational
         `);
         
-        // Parse and add new prompts
+        // Parse and add new prompts from the response
         const promptLines = response.split('\n').filter(line => 
             (line.trim().match(/^[-*•]\s/) || line.trim().match(/^\d+\.\s/)) && line.trim().length > 10
         );
         
         const newPrompts = promptLines.map((line, index) => ({
             id: Date.now() + index + 1000, // Offset to avoid ID conflicts
-            text: line.replace(/^[-*•]|\d+\.\s*/, ''),
+            text: line.replace(/^[-*•]|\d+\.\s*/, '').trim(),
             source: 'AI Generated'
         }));
         
         // Add to existing prompts
-        generatedPrompts = [...generatedPrompts, ...newPrompts];
+        if (newPrompts.length > 0) {
+            generatedPrompts = [...generatedPrompts, ...newPrompts];
+            // Display updated prompts
+            displayPromptsInPanel();
+        }
         
-        // Display updated prompts
-        displayPromptsInPanel();
-        
-        // Show message about new prompts
-        addMessageToChat('ai', 'Here are some fresh prompts to keep the ideas flowing!', true);
+        // Send the AI's response directly (it should already include the prompts)
+        addMessageToChat('ai', response, true);
         
     } catch (error) {
         console.error('Error generating new prompts:', error);
