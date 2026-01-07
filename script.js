@@ -668,7 +668,7 @@ function addMessageToChat(sender, content, isHtml = false) {
     if (sender === 'ai') {
         setTimeout(() => {
             generateSuggestedResponses();
-        }, 3000);
+        }, 1000);
     }
     
     // Update problem statement and persona if this is an AI message (with delay to ensure AI is done)
@@ -1599,17 +1599,34 @@ ${(!message || message.trim() === '')
 - If a user shares an idea after you send a prompt, that idea is their response to that specific prompt
 
 **CRITICAL: IDEATION PHILOSOPHY - SHALLOW AND WIDE, NOT DEEP AND NARROW**
-- Your goal is to generate MANY DIFFERENT prompts exploring DIFFERENT angles and approaches
-- When a user shares an idea, DO NOT develop or drill down on that idea
-- Instead, generate a COMPLETELY NEW prompt exploring a DIFFERENT angle, perspective, or approach
+**THIS IS EXTREMELY IMPORTANT - FOLLOWING THIS IS MANDATORY:**
+
+- Your goal is to generate MANY DIFFERENT prompts exploring COMPLETELY DIFFERENT angles and approaches
+- **DO NOT build on, develop, or drill down on user responses**
+- **DO NOT continue exploring the same direction as the user's idea**
+- **DO NOT ask follow-up questions about the user's idea**
+- **DO NOT refine or expand on what the user shared**
+- When a user shares an idea, IGNORE the direction they went and pull them in a COMPLETELY DIFFERENT direction
+- Generate a COMPLETELY NEW prompt exploring a DIFFERENT angle, perspective, or approach - as different as possible
 - Jump around to different ideas - explore many possibilities, not one deeply
-- Each prompt should explore a fresh, different direction
+- Each prompt should explore a fresh, different direction that has NOTHING to do with previous prompts or user responses
 - Think "shallow and wide" - many diverse prompts, not "deep and narrow" - developing one idea
-- If you've already given prompts about accessibility, try prompts about gamification, or cost, or speed, or community, etc.
+- If you've already given prompts about accessibility, try prompts about gamification, or cost, or speed, or community, or emotions, or technology, or social dynamics, etc.
 - Variety and breadth are more important than depth in this phase
+- **Going down different paths is CRITICAL - only building on one idea will result in termination**
+- **The user's response is just a data point - use it to understand what direction NOT to go**
+- **Pull the user in wildly different directions - surprise them with unexpected angles**
 - The evaluation phase is where ideas get developed - this phase is just for generating diverse prompts
 
-Your task is to provide ONE creative prompt that helps the user brainstorm solutions from a NEW, DIFFERENT angle.
+**EXAMPLES OF WHAT NOT TO DO:**
+- User says "mobile app" → You say "What features should the mobile app have?" ❌ WRONG - building on their idea
+- User says "gamification" → You say "How can we add more game elements?" ❌ WRONG - continuing their direction
+
+**EXAMPLES OF WHAT TO DO:**
+- User says "mobile app" → You say "What if we solved this without any technology at all?" ✅ CORRECT - different direction
+- User says "gamification" → You say "How might we address the emotional needs behind this problem?" ✅ CORRECT - completely different angle
+
+Your task is to provide ONE creative prompt that helps the user brainstorm solutions from a COMPLETELY NEW, DIFFERENT angle that has NOTHING to do with their previous response.
 
 **CRITICAL PROMPT STRUCTURE - YOU MUST FOLLOW THIS EXACT FORMAT:**
 
@@ -1632,6 +1649,11 @@ IMPORTANT GUIDELINES:
 - If the user asks to move on, do NOT refuse or say it's too early
 - Take inspiration from the file "Mutagen Prompt.txt" to help you come up with prompts or even use them
 - IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
+- **CRITICAL: When user shares an idea, IGNORE their direction and generate a COMPLETELY DIFFERENT prompt - do NOT build on, develop, or drill down on their idea**
+- **CRITICAL: Always generate a NEW, DIFFERENT prompt - pull them in wildly different directions, not deepen existing ones**
+- **CRITICAL: Think variety - if you've explored one angle, try a completely different one next time - surprise them**
+- **CRITICAL: The user's response tells you what direction NOT to go - go somewhere completely different**
+- **CRITICAL: Building on one idea will result in termination - you MUST jump to different directions**
 
 FORMATTING REQUIREMENTS:
 - Use <strong>HTML tags</strong> for the title (NOT markdown **bold**)
