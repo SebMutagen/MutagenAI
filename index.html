@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mutagen.AI - AI Brainstorming Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <h1>Mutagen.AI</h1>
+                <span class="tagline">AI-Powered Brainstorming</span>
+            </div>
+            <div class="tabs">
+                <button class="tab-button active" id="brainstormingTab">Brainstorming</button>
+                <button class="tab-button" id="savedIdeasTab">Saved Ideas</button>
+            </div>
+        </div>
+
+
+        <!-- Content Wrapper -->
+        <div class="content-wrapper">
+            <!-- Brainstorming Tab Content -->
+            <div id="brainstormingContent" class="tab-content active">
+                <!-- Main Content Area -->
+                <div class="main-content">
+            <!-- Left Sidebar -->
+            <button id="leftSidebarToggle" class="sidebar-toggle left-sidebar-toggle" title="Toggle left sidebar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+            <div id="leftSidebar" class="left-sidebar">
+                    <!-- Problem Statement Card -->
+                    <div class="problem-statement-card locked" id="problemStatementCard">
+                        <h3>
+                            <svg class="lock-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10z"/>
+                            </svg>
+                            <svg class="edit-icon" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                            </svg>
+                            Problem Statement
+                        </h3>
+                        <div id="problemStatementContent" class="problem-content">
+                            <p class="placeholder-text">Problem statement will appear here as we understand it better</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Persona Card -->
+                    <div class="persona-card locked" id="personaCard">
+                        <h3>
+                            <svg class="lock-icon" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10z"/>
+                            </svg>
+                            <svg class="edit-icon" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                            </svg>
+                            Persona
+                        </h3>
+                        <div id="personaContent" class="persona-content">
+                            <p class="placeholder-text">Persona details will appear here as we develop them</p>
+                        </div>
+                    </div>
+
+                    <!-- AI Suggested Responses -->
+                    <div class="suggested-responses-card" id="suggestedResponsesCard">
+                        <h3>Suggested Responses</h3>
+                        <div class="suggested-responses-list" id="suggestedResponsesList">
+                            <p class="placeholder-text">AI will suggest responses here</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Interface -->
+                <div class="chat-interface">
+                <div class="chat-messages" id="chatMessages">
+                <!-- Welcome message -->
+                    <div class="message ai-message">
+                        <div class="message-avatar">
+                            <div class="avatar-icon">AI</div>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-header">
+                                <span class="sender-name">Mutagen AI</span>
+                                <span class="message-time">now</span>
+                            </div>
+                            <div class="message-text">
+                                <h3>Welcome! I'm your AI design consultant 🚀</h3>
+                                <p>I'll help you come up with creative ideas through a structured 5-phase process:</p>
+                                <div class="phase-list">
+                                    <div class="phase-item">
+                                        <span class="phase-number">1</span>
+                                        <span class="phase-text">Contextualizing - Understanding your problem deeply</span>
+                                    </div>
+                                    <div class="phase-item">
+                                        <span class="phase-number">2</span>
+                                        <span class="phase-text">Persona Development - Creating a detailed user profile</span>
+                                    </div>
+                                    <div class="phase-item">
+                                        <span class="phase-number">3</span>
+                                        <span class="phase-text">Problem Reframing - Expanding creative possibilities</span>
+                                    </div>
+                                    <div class="phase-item">
+                                        <span class="phase-number">4</span>
+                                        <span class="phase-text">Ideation - Generating creative prompts (shown in sidebar)</span>
+                                    </div>
+                                    <div class="phase-item">
+                                        <span class="phase-number">5</span>
+                                        <span class="phase-text">Evaluation - Reviewing and refining your ideas</span>
+                                    </div>
+                                </div>
+                                <p><strong>What problem would you like to solve today?</strong></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Processing Indicator -->
+                <div id="processingIndicator" class="processing-indicator" style="display: none;">
+                    <div class="message ai-message">
+                        <div class="message-avatar">
+                            <div class="avatar-icon">AI</div>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-header">
+                                <span class="sender-name">Mutagen AI</span>
+                                <span class="message-time">now</span>
+                            </div>
+                            <div class="message-text">
+                                <div class="typing-indicator">
+                                    <span></span>
+                                    <span></span>
+                                    <span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Input Area -->
+                <div class="input-area">
+                    <div class="input-container">
+                        <textarea 
+                            id="chatInput" 
+                            class="message-input" 
+                            placeholder="Describe your problem or share an idea..."
+                            rows="1"
+                        ></textarea>
+                        <button id="enterModeToggle" class="enter-mode-toggle" title="Toggle: Enter to send (Shift+Enter for line break) / Enter for line break (Shift+Enter to send)">
+                            <span class="toggle-label">↵</span>
+                        </button>
+                        <button id="sendButton" class="send-button">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22,2 15,22 11,13 2,9"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar -->
+            <button id="rightSidebarToggle" class="sidebar-toggle right-sidebar-toggle" title="Toggle right sidebar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </button>
+            <div id="rightSidebar" class="right-sidebar">
+                <!-- Saved Ideas Card -->
+                <div class="prompts-card">
+                    <div class="prompts-header">
+                        <h3>Saved Ideas</h3>
+                        <button id="exportIdeasBtn" class="export-button" title="Export ideas to CSV">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="promptsList" class="prompts-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">💡</div>
+                            <p>Your ideas will appear here as you create them</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+
+            <!-- Saved Ideas Tab Content -->
+            <div id="savedIdeasContent" class="tab-content">
+                <div class="saved-ideas-container">
+                    <div class="saved-ideas-header">
+                        <h2>Your Saved Ideas</h2>
+                        <p>Ideas you've created during brainstorming sessions</p>
+                    </div>
+                    <div id="savedIdeasList" class="saved-ideas-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">💡</div>
+                            <h3>No saved ideas yet</h3>
+                            <p>Start brainstorming to save your ideas here</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">AI is thinking...</div>
+        </div>
+    </div>
+
+    <!-- Cloudflare Worker Configuration -->
+    <!-- Replace YOUR_WORKER_URL with your actual Cloudflare Worker URL -->
+    <!-- Example: https://mutagen-proxy.your-subdomain.workers.dev -->
+    <script>
+        // Set your Cloudflare Worker URL here (proxy for Claude API)
+        // If not set, will fall back to /api/chat for local development
+        window.CLAUDE_PROXY_URL = 'https://spring-wind-350c.seb-5f7.workers.dev'; // Replace with your actual worker URL
+    </script>
+    <script src="script.js?v=2.1"></script>
+</body>
+</html>

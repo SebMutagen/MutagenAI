@@ -1,0 +1,5 @@
+Example: Help young, busy professionals learn how to cook. 
+User: Sprite is a 25-year-old management consultant who is very health conscious. She works around 60-80 hours a week and travels for work from time to time. She likes picking up new recipes and ingredients from these countries she travels to, but doesn't have the confidence to cook them. 
+Goal: Learn how to cook quickly at her own convenience. She wants to learn the basics as well as specific, exotic dishes. She wants to get to the level where she can improvise dishes instead of having to follow a recipe word for word. 
+Problem: She finds the prospect of learning how to cook daunting. There's a lot of different ingredients, techniques, etc. to learn and she doesn't know where to start. 
+Limitations: Sprite wants to learn how to cook, do not suggest things like takeout or meal planning services. Any solution must also be relatively time efficient, as Sprite does not have a lot of time every day -- even on weekends. 

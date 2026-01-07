@@ -1,0 +1,5 @@
+Example: Improve the flight booking process for elderly people 
+User: Bob is a 60-year-old man who is a retired taxi driver in New York. 
+Goal: He flies to Atlanta several times a year to see his kids. 
+Problem: The online flight booking process has many complicated fields that Bob has trouble filling out. If he takes too long, the website times out and he has to restart everything, which is frustrating. 
+Limitations: Bob must fly to see his children so you cannot suggest other modes of transportation 

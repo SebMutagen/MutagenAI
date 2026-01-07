@@ -1,0 +1,80 @@
+Here is an example output: 
+Problem: 
+How might we empower busy professionals to confidently manage their cooking tasks efficiently, transforming their kitchen experience into a time-saving and enjoyable part of their daily routine?
+
+
+Article: 
+Chanel is discovering that it’s hard going toe-to-toe with the Hermès RMS 0.45%increase; green up pointing triangle Birkin bag. A much smaller American brand, The Row, is becoming a more convincing challenger.
+
+Two of France’s most famous luxury brands grew roughly in lockstep from 2018 until a change last year. Chanel is privately owned but recently published annual results showing sales fell 4% in 2024 and operating profit dropped almost a third. Meanwhile, Hermès grew sales 15% last year and operating profit rose 9%. 
+
+Hermès
+Chanel
+Chanel doesn’t release as many financial details as its publicly traded peer, so it is difficult to know exactly what is going on. Demand for luxury goods has slowed globally. However, Chanel is underperforming its peers. One theory is that the company raised prices too fast on its handbags. While this flattered Chanel’s top-line growth during the pandemic, customers are now backing away. 
+
+One of the brand’s most recognizable products, the quilted classic flap purse, has become emblematic of the extraordinary price increases in luxury goods. American shoppers pay $10,800 for the bag today, up from $5,800 in 2019.
+
+Chanel says it had to raise prices because raw materials have become more expensive. But the bag’s 86% price increase far outstrips the overall rate of inflation for the period, as well as the average for the wider luxury industry. If Chanel’s prices had risen in line with the overall inflation, the bag would cost around $7,400 today. 
+
+Professionals in the luxury-goods industry think that Chanel may be trying to compete directly with Hermès’s most popular handbag, the Birkin. Chanel’s price hikes shrank the “Birkin premium”—a term used by handbag forum PurseBop to track the additional dollars U.S. shoppers must pay for the Hermès bag versus the Chanel one—from $4,000 in 2019 to only $200 in 2023. 
+
+However, the Birkin premium has widened again to $1,900 as Hermès passed on the full effect of President Trump’s tariffs to customers in May. Chanel has held prices steady for now and may have to swallow the new import levies as the brand’s sales are weak in the U.S.
+
+Chanel Classic Flap​Medium
+Hermès Birkin 25
+The wish to mimic the Birkin is understandable, as the bag is a gold mine for Hermès. The brand limits how many it produces, so demand far outstrips supply. Hermès could easily jack up the price but has found a smarter way to profit from the Birkin’s popularity that is less likely to alienate loyal clients.
+
+To get a Birkin, shoppers must build a relationship with one of the brand’s sales assistants and wait to be offered a purse. This creates a perception that the biggest spenders get access to Birkins and encourages customers to splurge on other goods to build the equivalent of an “Uber rating” at the Hermès store. 
+
+Although the brand says shoppers aren’t obliged to buy other goods to be considered for a Birkin, collectors of the bags call this the “pre-spend.” To get their hands on a Birkin 25 in basic Togo leather, shoppers might have to shell out $10,000 or more on other goods they don’t necessarily want. 
+
+The pre-spend boosts sales in other parts of the brand’s store and keeps Hermès’s performance steady even during economic downturns. Barring the Covid-19 pandemic in 2020, the company’s annual growth hasn’t dipped below 7% since 2010. This consistency is prized by investors who pay 49 times the company’s estimated earnings to own the stock.
+
+Another way to check whether the Chanel bag is truly approaching the same league as the Birkin is to look at values in the secondhand market. Because the supply of Birkins is restricted at the Hermès store, people are willing to pay up extravagantly for used bags. A Birkin 25 in Togo leather that cost $11,400 to buy new in 2024 sells for more than double that amount on resale platform Fashionphile. 
+
+Meanwhile, the Chanel bag sells used for less than what it costs new. The classic flap fetched 77% of its sticker price on average when resold in 2024, down from 83% in 2019, based on data supplied by Fashionphile. So while the bag’s resale value has risen, it hasn’t kept up with price increases in the primary market. 
+
+The Row, a nearly 20-year-old American luxury brand, is doing a better job of challenging the Birkin. The company’s Margaux handbag recently joined the ranks of luxury products that cost more to buy secondhand than new, including the Birkin, and Rolex and Patek Philippe watches. 
+
+A woman carries a Margaux handbag and wears Converse sneakers.
+The Row’s Margaux handbag is becoming harder for shoppers to get their hands on. Photo: Streetstyleshooters/Getty Images
+At 41% above its $4,700 retail price, the Margaux’s resale premium isn’t as large as the Birkin’s but shows high demand. Last year, the investment vehicle of the billionaire family behind Chanel took a stake in The Row. 
+
+SHARE YOUR THOUGHTS
+Can Chanel win a handbag race against the Hermès Birkin? Join the conversation below.
+
+The U.S. brand gave priority to scarcity over price increases to boost demand. The Margaux costs a fifth more today than in 2019, but The Row is making it harder for shoppers to get their hands on it. This looks like a strategy of manufactured scarcity—The Row could increase production, as the Margaux isn’t hand-stitched like the Birkin. Instead, it removed an option to be added to a waiting list for the bag and may be restricting access to the bag to its biggest-spending customers.
+
+This approach means sacrificing short-term profits in return for steady demand. The lesson for other luxury brands is that cult products need to be scarce rather than stunningly expensive.
+
+Prompts Generated from the Article: 
+
+Section 1: Performance Divergence (Chanel vs Hermès)
+
+The article shows Chanel trying to compete broadly while Hermès focuses on their core luxury audience. What if your app had different versions for different types of busy professionals (new cooks vs. experienced but time-strapped)?
+How could you create distinct experiences for users who lack confidence versus those who just need efficiency?
+
+Section 2: Pricing Strategy Gone Wrong
+
+Chanel raised prices 86% but lost customers. What if your app started free but gradually introduced premium features as users build cooking skills and confidence?
+How could you avoid "pricing out" your core users while still creating premium value?
+
+Section 3: The "Birkin Premium" Strategy
+
+Hermès maintains a price gap to stay exclusive. What if your app had different tiers where advanced features felt genuinely premium but accessible?
+How could you create a "cooking confidence premium" where users aspire to reach higher skill levels?
+
+Section 4: The "Pre-Spend" System
+
+Hermès makes customers buy other items before getting a Birkin. What if your app required users to complete basic cooking challenges before unlocking advanced recipes?
+How could you gamify the learning process so users invest time in foundational skills?
+
+Section 5: Resale Value & Secondary Markets
+
+Birkins hold value in resale markets. What if successful meal plans or cooking techniques created by users could be shared, rated, or even "traded" within your app community?
+How could user-generated recipes become more valuable over time?
+
+Section 6: The Row's Scarcity Strategy
+
+The Row removed waitlists and created manufactured scarcity. What if certain premium cooking content or chef consultations were randomly offered to engaged users?
+How could limited-time recipe collections create excitement and urgency?
