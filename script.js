@@ -1589,7 +1589,21 @@ Persona context: "${persona || 'Not yet created'}"
 
 ${(!message || message.trim() === '') 
     ? "We're starting the creative prompt generation phase. Based on the conversation history, begin by providing creative prompts to help brainstorm solutions, or ask ONE question if you need more context."
-    : `The user has shared: "${message}"`}
+    : `**CRITICAL INSTRUCTION - READ CAREFULLY:**
+
+The user just responded with: "${message}"
+
+**YOU MUST AVOID ANYTHING RELATED TO THIS RESPONSE.**
+
+Do NOT:
+- Build on this response
+- Develop this idea further
+- Ask questions about this response
+- Explore this direction
+- Refine or expand on this response
+- Continue in this direction
+
+**INSTEAD:** Generate a prompt that is COMPLETELY UNRELATED to what the user just said. Pull them in a WILDLY DIFFERENT direction. The user's response tells you what direction NOT to go - go somewhere completely different and unexpected.`}
 
 **IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure your prompts are relevant to the problem being solved.
 
@@ -1634,10 +1648,20 @@ Your task is to provide ONE creative prompt that helps the user brainstorm solut
 2. **Connection** (one sentence connecting to the persona/problem, italicized using <em> tags)
 3. **Creative Prompt** (the actual brainstorming question, bold using <strong> tags)
 
+**PROMPT STYLE - REFERENCE Mutagen Prompt.txt:**
+- Look at the Mutagen Prompt.txt file for examples of broad, open-ended prompts
+- Mutagen prompts are intentionally broad and give people freedom to explore
+- Examples from Mutagen: "Change how often users use it", "Take inspiration from an existing product or service", "Take inspiration from a game"
+- Your prompts should be similarly broad and open-ended - don't constrain thinking
+- DO NOT suggest specific answers, examples, or solutions
+- DO NOT provide examples of what the answer might look like
+- Let people think for themselves - your job is to guide their thinking, not provide answers
+- The prompt should open up possibilities, not narrow them down
+
 **EXAMPLE FORMAT:**
-<strong>Design for Accessibility</strong><br><br>
-<em>This connects to your persona's need for inclusive solutions.</em><br><br>
-<strong>How might we redesign this experience to be accessible to users with different abilities?</strong>
+<strong>Day In Day Out</strong><br><br>
+<em>This connects to your persona's daily habits and routines.</em><br><br>
+<strong>Take inspiration from your daily routine</strong>
 
 IMPORTANT GUIDELINES:
 - Provide ONLY ONE prompt per response
@@ -1647,7 +1671,10 @@ IMPORTANT GUIDELINES:
 - The user can move to the next phase at any time - support their decision if they ask to move on
 - The prompt generation phase is ongoing - users can generate ideas and you can provide more prompts as needed
 - If the user asks to move on, do NOT refuse or say it's too early
-- Take inspiration from the file "Mutagen Prompt.txt" to help you come up with prompts or even use them
+- **CRITICAL: Reference Mutagen Prompt.txt for style - use broad, open-ended prompts that give freedom to explore**
+- **CRITICAL: DO NOT suggest answers, examples, or specific solutions - let people think for themselves**
+- **CRITICAL: Your prompts should open up possibilities, not narrow them down or constrain thinking**
+- **CRITICAL: Think outside the box - use prompts that encourage creative exploration**
 - IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 - **CRITICAL: When user shares an idea, IGNORE their direction and generate a COMPLETELY DIFFERENT prompt - do NOT build on, develop, or drill down on their idea**
 - **CRITICAL: Always generate a NEW, DIFFERENT prompt - pull them in wildly different directions, not deepen existing ones**
