@@ -320,7 +320,7 @@ function updateEnterModeToggle() {
             }
         } else {
             toggleLabel.innerHTML = '↵<br><span style="font-size: 9px; opacity: 0.8;">Break</span>';
-            enterModeToggle.title = 'Enter for line break (Ctrl+Enter or Shift+Enter to send). Click to toggle.';
+            enterModeToggle.title = 'Enter for line break (Ctrl+Enter to send). Click to toggle.';
             enterModeToggle.classList.add('linebreak-mode');
             // Add visual hint when linebreak mode is on
             addEnterModeHint();
@@ -387,12 +387,12 @@ function setupEventListeners() {
                 }
                 // Shift+Enter allows default behavior (line break)
             } else {
-                // Toggled: Enter creates line break, Shift+Enter or Ctrl+Enter sends
-                if (e.shiftKey || e.ctrlKey) {
+                // Toggled: Enter creates line break, Ctrl+Enter sends
+                if (e.ctrlKey) {
                     e.preventDefault();
                     handleSendMessage();
                 }
-                // Enter allows default behavior (line break)
+                // Enter and Shift+Enter allow default behavior (line break)
             }
         }
     });
@@ -1171,7 +1171,7 @@ async function processContextualizingMessage(message) {
     }
     
     const response = await callClaudeAPI(`
-You are a product manager and design consultant helping people come up with creative ideas. You are currently in the CONTEXTUALIZING PHASE.
+You are a user experience researcher helping people come up with creative ideas. You are currently in the CONTEXTUALIZING PHASE.
 
 **CURRENT PHASE: CONTEXTUALIZING**
 
@@ -1181,6 +1181,12 @@ You are in the contextualizing phase. The phases are:
 3. Problem Statement Refinement
 4. Creative Prompt Generation
 5. Evaluation
+
+**YOUR ROLE: USER EXPERIENCE RESEARCHER**
+- You are a UX researcher with a good understanding of user research methodologies
+- Your goal is to deeply understand the problem the user is facing and WHY it's a problem
+- You should have a good idea of the problem and why it matters before moving to persona development
+- Ask questions to understand both the problem itself and the context around it
 
 **IMPORTANT: USER CONTROL**
 - The user can move to the next phase at any time if they want to
@@ -1195,15 +1201,16 @@ ${problemStatement !== message ? `Previous context: "${problemStatement}"` : ''}
 Previously asked questions: ${Array.from(askedQuestions).join(', ')}
 Number of questions asked so far: ${askedQuestions.size}
 
-Your role is to understand more about the user's problem through open-ended questions. You need to gather comprehensive information about:
+Your role is to understand more about the user's problem and the people affected by it through open-ended questions. You need to gather comprehensive information about:
 
-**UNDERSTANDING AREAS TO COVER:**
-- **Demographics**: Who is affected? (age, occupation, background, etc.)
-- **Pain Points & Frustrations**: What specific problems do they face?
-- **Goals & Motivations**: What are they trying to achieve?
-- **Behaviors & Habits**: How do they currently handle this?
-- **Constraints & Limitations**: What limits their options?
-- **Emotional State & Mindset**: How do they feel about this problem?
+**UNDERSTANDING AREAS TO COVER (INCLUDE PERSONA QUESTIONS HERE):**
+- **The Problem**: What is the problem? Why is it a problem? What makes it important?
+- **Demographics**: Who is affected? (age, occupation, background, lifestyle, etc.) - ASK THESE QUESTIONS NOW
+- **Pain Points & Frustrations**: What specific problems do they face? What's frustrating about the current situation?
+- **Goals & Motivations**: What are they trying to achieve? What motivates them?
+- **Behaviors & Habits**: How do they currently handle this? What are their daily routines and behaviors? - ASK THESE QUESTIONS NOW
+- **Constraints & Limitations**: What limits their options? (budget, time, resources, etc.)
+- **Emotional State & Mindset**: How do they feel about this problem? What's their mindset?
 
 **CURRENT UNDERSTANDING STATUS:**
 - Demographics: ${understandingAreas.demographics ? '✓ Covered' : '❌ Need more info'}
@@ -1370,7 +1377,7 @@ FORMATTING REQUIREMENTS:
     // Don't send a separate message - let the AI response include this context
     const isPhaseStart = !message || message.trim() === '';
     const userContext = isPhaseStart 
-        ? "We're starting the persona development phase. Based on the conversation history, begin by creating a detailed persona or asking ONE question to gather more information needed for the persona."
+        ? "We're starting the persona development phase. Based on the conversation history from the contextualizing phase, create a detailed persona. List your assumptions clearly and ask if they're correct. DO NOT ask exploratory questions - only ask for confirmation."
         : `The user has shared: "${message}"`;
     
     const response = await callClaudeAPI(`
@@ -1385,19 +1392,20 @@ You are in the persona development phase. The phases are:
 4. Creative Prompt Generation
 5. Evaluation
 
-**IMPORTANT: USER CONTROL**
-- The user can move to the next phase at any time if they want to
-- If the user asks to move on, you should support their decision
-- Do NOT refuse or block the user from moving forward
-- You can suggest staying longer if you think more information would help, but respect the user's choice
-
 **CRITICAL CONTEXT - THE PROBLEM STATEMENT:**
 The user's problem statement is: "${problemStatement || 'Not yet defined'}"
 **YOU MUST REMEMBER THIS PROBLEM STATEMENT** - it is the core of what we're solving. The persona you create should be relevant to this specific problem. Always keep this problem in mind when creating the persona.
 
 ${userContext}
 
-Your task is to create a detailed persona based on the information gathered. The persona should be relevant to solving this problem: "${problemStatement || 'Not yet defined'}". Focus on:
+**YOUR TASK: CREATE PERSONA, LIST ASSUMPTIONS, GET CONFIRMATION**
+- Based on the information gathered in the contextualizing phase, create a detailed persona
+- List out the assumptions you've made (what you extrapolated vs. what the user provided)
+- Ask the user to confirm if the assumptions are correct
+- **DO NOT ask exploratory questions** - only ask if the assumptions are correct or if they want to make changes
+- The persona should be relevant to solving this problem: "${problemStatement || 'Not yet defined'}"
+
+**PERSONA STRUCTURE:**
 - Demographics (age, occupation, lifestyle if mentioned)
 - Pain points and frustrations
 - Goals and motivations
@@ -1405,19 +1413,16 @@ Your task is to create a detailed persona based on the information gathered. The
 - Constraints and limitations
 - Emotional state and mindset
 
-IMPORTANT GUIDELINES:
+**CRITICAL GUIDELINES:**
 - Keep messages SHORT - 2-3 sentences maximum. Don't elaborate unnecessarily.
-- If the user gives specific details (age, occupation, etc.), treat them as set in stone
+- If the user gave specific details (age, occupation, etc.), treat them as set in stone
 - Fill in other details by extrapolating from what they've shared
-- CLEARLY distinguish between what the user provided vs. what you extrapolated
+- **CLEARLY distinguish between what the user provided vs. what you extrapolated**
 - Use quotes for any direct user statements
-- Be specific and detailed - this persona will guide ideation
-- You can suggest moving on when you feel the persona is complete, but the user can move on at any time
+- **List your assumptions explicitly** - say "Based on what you shared, I'm assuming..." or "I extrapolated..."
+- **ONLY ask ONE question: "Does this persona accurately reflect your target user, or would you like to make any changes?"**
+- **DO NOT ask exploratory questions about demographics, behaviors, etc. - those should have been asked in the contextualizing phase**
 - If the user asks to move on, support their decision - do NOT refuse or say it's too early
-- Present the persona naturally and let the conversation flow
-- **CRITICAL QUESTION RULE: Ask ONLY ONE question per message. If you need multiple pieces of information, ask them ONE AT A TIME in separate messages.**
-- **If you absolutely must ask multiple questions, format them as a numbered list (1., 2., 3.) so the user can answer them one by one.**
-- NEVER ask multiple questions in a single sentence or paragraph - this overwhelms the user
 - IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 
 FORMATTING REQUIREMENTS:
