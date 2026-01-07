@@ -29,7 +29,11 @@ let chatMessages, chatInput, sendButton, loadingOverlay, processingIndicator;
 let leftSidebar, rightSidebar, promptsList, problemStatementContent, personaContent;
 let suggestedResponsesList;
 let brainstormingTab, savedIdeasTab, brainstormingContent, savedIdeasContent, savedIdeasList;
-let refreshPromptsBtn;
+let enterModeToggle;
+let leftSidebarToggle, rightSidebarToggle;
+
+// Enter key mode: 'send' (default) or 'linebreak'
+let enterKeyMode = localStorage.getItem('enterKeyMode') || 'send';
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', () => {
@@ -46,6 +50,8 @@ function initializeElements() {
     processingIndicator = document.getElementById('processingIndicator');
     leftSidebar = document.getElementById('leftSidebar');
     rightSidebar = document.getElementById('rightSidebar');
+    leftSidebarToggle = document.getElementById('leftSidebarToggle');
+    rightSidebarToggle = document.getElementById('rightSidebarToggle');
     promptsList = document.getElementById('promptsList');
     problemStatementContent = document.getElementById('problemStatementContent');
     personaContent = document.getElementById('personaContent');
@@ -57,12 +63,28 @@ function initializeElements() {
     brainstormingContent = document.getElementById('brainstormingContent');
     savedIdeasContent = document.getElementById('savedIdeasContent');
     savedIdeasList = document.getElementById('savedIdeasList');
-    refreshPromptsBtn = document.getElementById('refreshPromptsBtn');
+    enterModeToggle = document.getElementById('enterModeToggle');
+    const exportIdeasBtn = document.getElementById('exportIdeasBtn');
+    
+    // Initialize enter key mode toggle
+    updateEnterModeToggle();
+    
+    // Initialize saved ideas in sidebar
+    displaySavedIdeasInSidebar();
+    
+    // Export button
+    if (exportIdeasBtn) {
+        exportIdeasBtn.addEventListener('click', exportIdeasToCSV);
+    }
 }
 
 // Simple Markdown Rendering using fallback parser
 function parseMarkdown(text) {
     if (!text) return '';
+    // If text already contains HTML tags, return it as-is (already processed)
+    if (text.includes('<br>') || text.includes('<strong>') || text.includes('<em>') || text.includes('<p>')) {
+        return text;
+    }
     return parseMarkdownFallback(text);
 }
 
@@ -281,6 +303,49 @@ function saveCardContent(cardElement, newContent) {
     }
 }
 
+// Update enter mode toggle button appearance
+function updateEnterModeToggle() {
+    if (!enterModeToggle) return;
+    
+    const toggleLabel = enterModeToggle.querySelector('.toggle-label');
+    if (toggleLabel) {
+        if (enterKeyMode === 'send') {
+            toggleLabel.innerHTML = '↵<br><span style="font-size: 9px; opacity: 0.8;">Send</span>';
+            enterModeToggle.title = 'Enter to send (Shift+Enter for line break). Click to toggle.';
+            enterModeToggle.classList.remove('linebreak-mode');
+            // Remove hint if it exists
+            const existingHint = document.querySelector('.enter-mode-hint');
+            if (existingHint) {
+                existingHint.remove();
+            }
+        } else {
+            toggleLabel.innerHTML = '↵<br><span style="font-size: 9px; opacity: 0.8;">Break</span>';
+            enterModeToggle.title = 'Enter for line break (Ctrl+Enter or Shift+Enter to send). Click to toggle.';
+            enterModeToggle.classList.add('linebreak-mode');
+            // Add visual hint when linebreak mode is on
+            addEnterModeHint();
+        }
+    }
+}
+
+function addEnterModeHint() {
+    // Remove existing hint if it exists
+    const existingHint = document.querySelector('.enter-mode-hint');
+    if (existingHint) {
+        existingHint.remove();
+    }
+    
+    // Find the input container
+    const inputContainer = chatInput?.parentElement;
+    if (!inputContainer) return;
+    
+    // Create hint element
+    const hint = document.createElement('div');
+    hint.className = 'enter-mode-hint';
+    hint.textContent = 'Ctrl+Enter to send';
+    inputContainer.appendChild(hint);
+}
+
 function updateCardLockStates() {
     // Problem statement card: locked until problem refinement phase, then brightened after refinement
     if (currentPhase === 'problemRefinement') {
@@ -311,13 +376,35 @@ function setupEventListeners() {
     // Send button click
     sendButton.addEventListener('click', handleSendMessage);
     
-    // Enter key in chat input
+    // Enter key in chat input - behavior depends on toggle mode
     chatInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSendMessage();
+        if (e.key === 'Enter') {
+            if (enterKeyMode === 'send') {
+                // Default: Enter sends, Shift+Enter creates line break
+                if (!e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                }
+                // Shift+Enter allows default behavior (line break)
+            } else {
+                // Toggled: Enter creates line break, Shift+Enter or Ctrl+Enter sends
+                if (e.shiftKey || e.ctrlKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                }
+                // Enter allows default behavior (line break)
+            }
         }
     });
+    
+    // Toggle enter key mode
+    if (enterModeToggle) {
+        enterModeToggle.addEventListener('click', () => {
+            enterKeyMode = enterKeyMode === 'send' ? 'linebreak' : 'send';
+            localStorage.setItem('enterKeyMode', enterKeyMode);
+            updateEnterModeToggle();
+        });
+    }
     
     // Auto-resize textarea
     chatInput.addEventListener('input', () => {
@@ -348,13 +435,45 @@ function setupEventListeners() {
         savedIdeasTab.addEventListener('click', () => switchTab('savedIdeas'));
     }
     
-    // Refresh prompts button
-    if (refreshPromptsBtn) {
-        refreshPromptsBtn.addEventListener('click', () => {
-            if (currentPhase === 'ideation') {
-                generateNewPrompts();
+    // Toggle left sidebar
+    if (leftSidebarToggle && leftSidebar) {
+        leftSidebarToggle.addEventListener('click', () => {
+            const wasCollapsed = leftSidebar.classList.contains('collapsed');
+            leftSidebar.classList.toggle('collapsed');
+            leftSidebarToggle.classList.toggle('collapsed');
+            localStorage.setItem('leftSidebarCollapsed', leftSidebar.classList.contains('collapsed'));
+            
+            // If sidebar was collapsed and is now open, generate suggested responses
+            if (wasCollapsed && !leftSidebar.classList.contains('collapsed')) {
+                // Generate suggested responses after a short delay to ensure sidebar is fully visible
+                setTimeout(() => {
+                    generateSuggestedResponses();
+                }, 300);
             }
         });
+        
+        // Restore collapsed state
+        const leftCollapsed = localStorage.getItem('leftSidebarCollapsed') === 'true';
+        if (leftCollapsed) {
+            leftSidebar.classList.add('collapsed');
+            leftSidebarToggle.classList.add('collapsed');
+        }
+    }
+    
+    // Toggle right sidebar
+    if (rightSidebarToggle && rightSidebar) {
+        rightSidebarToggle.addEventListener('click', () => {
+            rightSidebar.classList.toggle('collapsed');
+            rightSidebarToggle.classList.toggle('collapsed');
+            localStorage.setItem('rightSidebarCollapsed', rightSidebar.classList.contains('collapsed'));
+        });
+        
+        // Restore collapsed state
+        const rightCollapsed = localStorage.getItem('rightSidebarCollapsed') === 'true';
+        if (rightCollapsed) {
+            rightSidebar.classList.add('collapsed');
+            rightSidebarToggle.classList.add('collapsed');
+        }
     }
 }
 
@@ -401,11 +520,19 @@ function isAffirmativeResponse(message) {
         'that\'s right', 'that\'s correct', 'that works', 'sounds good',
         'looks good', 'perfect', 'good', 'fine', 'ok', 'okay', 'agreed',
         'i agree', 'that\'s accurate', 'it\'s accurate', 'it is accurate',
-        'sounds right', 'looks right', 'that\'s fine', 'that works for me'
+        'sounds right', 'looks right', 'that\'s fine', 'that works for me',
+        'let\'s do it', 'let\'s go', 'go ahead', 'proceed', 'continue',
+        'sounds great', 'that sounds good', 'i\'m ready', 'ready'
     ];
     
-    // Check for simple affirmative responses
-    if (affirmativeKeywords.some(keyword => messageLower === keyword || messageLower.startsWith(keyword + ' ') || messageLower.endsWith(' ' + keyword))) {
+    // Check for simple affirmative responses (exact match or at start/end)
+    if (affirmativeKeywords.some(keyword => 
+        messageLower === keyword || 
+        messageLower.startsWith(keyword + ' ') || 
+        messageLower.endsWith(' ' + keyword) ||
+        messageLower === keyword + '.' ||
+        messageLower === keyword + '!'
+    )) {
         return true;
     }
     
@@ -414,7 +541,9 @@ function isAffirmativeResponse(message) {
         'that\'s correct', 'that is correct', 'that\'s right', 'that is right',
         'sounds good', 'looks good', 'that works', 'i agree', 'i\'m good',
         'no changes', 'no change', 'it\'s good', 'it is good', 'it\'s fine',
-        'it is fine', 'it\'s accurate', 'it is accurate', 'that\'s accurate'
+        'it is fine', 'it\'s accurate', 'it is accurate', 'that\'s accurate',
+        'let\'s move', 'let\'s proceed', 'let\'s continue', 'i\'m ready to',
+        'ready to move', 'ready to proceed', 'ready to continue'
     ];
     
     return affirmativePhrases.some(phrase => messageLower.includes(phrase));
@@ -497,9 +626,30 @@ function addMessageToChat(sender, content, isHtml = false) {
     messageText.className = 'message-text';
     
     if (isHtml) {
-        messageText.innerHTML = content;
+        // If content is HTML, render it directly (AI messages with HTML tags)
+        // Check if content contains HTML tags - if so, render as-is
+        // If it contains escaped HTML entities, unescape them
+        if (content.includes('&lt;') || content.includes('&gt;') || content.includes('&amp;')) {
+            // Content has escaped HTML, unescape it
+            const tempDiv = document.createElement('div');
+            tempDiv.textContent = content;
+            messageText.innerHTML = tempDiv.innerHTML;
+        } else {
+            // Content is already HTML, render directly
+            messageText.innerHTML = content;
+        }
     } else {
-        messageText.innerHTML = parseMarkdown(content);
+        // For plain text messages (user messages or AI messages without HTML)
+        // First escape HTML to prevent XSS, then convert newlines to <br>
+        const escaped = content
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const withLineBreaks = escaped.replace(/\n/g, '<br>');
+        // Then parse markdown (which will handle other formatting)
+        messageText.innerHTML = parseMarkdown(withLineBreaks);
     }
     
     messageContent.appendChild(messageHeader);
@@ -527,10 +677,7 @@ function addMessageToChat(sender, content, isHtml = false) {
             updateProblemStatementFromAI(content);
             updatePersonaFromAI(content);
             
-            // If we're in prompt generation phase, extract and display prompts from AI response
-            if (currentPhase === 'promptGeneration') {
-                extractAndDisplayPrompts(content);
-            }
+            // Prompts are now shown in chat, sidebar shows saved ideas
         }, 3000);
     }
 }
@@ -777,7 +924,7 @@ async function resetProgress() {
     reframedProblem = null;
     await updateProblemStatement('');
     await updatePersona('');
-    displayPromptsInPanel();
+    displaySavedIdeasInSidebar();
     updateCardLockStates();
 }
 
@@ -815,12 +962,61 @@ async function processUserMessage(message) {
                 await processProblemRefinementMessage(message);
                 break;
             case 'promptGeneration':
-                await processPromptGenerationMessage(message);
-                // Save idea if it's substantial (not just a question or short response)
-                // Don't automatically evaluate - let the user decide when to evaluate
-                if (message.length > 20 && !message.toLowerCase().includes('?')) {
-                    saveIdea(message);
+                // Save all ideas in the prompt generation phase BEFORE processing
+                // This ensures we capture the prompt that came BEFORE the user's idea, not after
+                // Only skip if it's clearly a question or command
+                if (!message.toLowerCase().startsWith('evaluate') && 
+                    !message.toLowerCase().startsWith('feedback') &&
+                    !message.toLowerCase().startsWith('what do you think')) {
+                    // Find the AI message that came BEFORE this user message
+                    // The user's message is already in chatHistory, so we need to find the one before it
+                    const userMessageIndex = chatHistory.length - 1; // Last message is the user's
+                    const messagesBeforeUser = chatHistory.slice(0, userMessageIndex);
+                    const aiMessagesBeforeUser = messagesBeforeUser.filter(msg => msg.sender === 'ai');
+                    const lastAIMessageBeforeUser = aiMessagesBeforeUser.length > 0 ? aiMessagesBeforeUser[aiMessagesBeforeUser.length - 1] : null;
+                    
+                    let promptTitle = null;
+                    let promptConnection = null;
+                    let promptText = null;
+                    
+                    if (lastAIMessageBeforeUser) {
+                        // First, try to extract directly from the AI message that came before the user's message
+                        const extracted = extractPromptFromMessage(lastAIMessageBeforeUser.content);
+                        if (extracted.title || extracted.text) {
+                            promptTitle = extracted.title;
+                            promptConnection = extracted.connection;
+                            promptText = extracted.text;
+                        } else {
+                            // If extraction failed, try to find matching prompt in generatedPrompts
+                            // Look for prompts that match the AI message content
+                            const aiContent = lastAIMessageBeforeUser.content || '';
+                            const matchingPrompt = generatedPrompts.find(p => {
+                                if (p.title && aiContent.includes(p.title)) return true;
+                                if (p.text && aiContent.includes(p.text.substring(0, 50))) return true;
+                                return false;
+                            });
+                            
+                            if (matchingPrompt) {
+                                promptTitle = matchingPrompt.title;
+                                promptConnection = matchingPrompt.connection;
+                                promptText = matchingPrompt.text;
+                            }
+                        }
+                    }
+                    
+                    // If we still don't have a prompt, try the most recent one in generatedPrompts as fallback
+                    if (!promptTitle && !promptText && generatedPrompts.length > 0) {
+                        const mostRecentPrompt = generatedPrompts[generatedPrompts.length - 1];
+                        promptTitle = mostRecentPrompt.title;
+                        promptConnection = mostRecentPrompt.connection;
+                        promptText = mostRecentPrompt.text;
+                    }
+                    
+                    saveIdea(message, promptText, promptTitle, promptConnection);
                 }
+                
+                // Process the message (this may generate a new prompt)
+                await processPromptGenerationMessage(message);
                 break;
             case 'evaluation':
                 await processEvaluationMessage(message);
@@ -933,22 +1129,44 @@ async function processContextualizingMessage(message) {
     
     // Check if user wants to move on or agrees to AI's previous suggestion BEFORE generating response
     const lastAIMessage = chatHistory.filter(msg => msg.sender === 'ai').slice(-1)[0];
+    const lastAIContent = lastAIMessage ? lastAIMessage.content.toLowerCase() : '';
+    
+    // More flexible detection - check if AI suggested moving on in any way
     const aiSuggestedMovingOn = lastAIMessage && (
-        lastAIMessage.content.toLowerCase().includes('ready to move on') ||
-        lastAIMessage.content.toLowerCase().includes('move on to') ||
-        lastAIMessage.content.toLowerCase().includes('proceed to') ||
-        lastAIMessage.content.toLowerCase().includes('next phase')
+        lastAIContent.includes('ready to move on') ||
+        lastAIContent.includes('move on to') ||
+        lastAIContent.includes('proceed to') ||
+        lastAIContent.includes('next phase') ||
+        lastAIContent.includes('should we move') ||
+        lastAIContent.includes('would you like to move') ||
+        lastAIContent.includes('ready to proceed') ||
+        lastAIContent.includes('move forward') ||
+        lastAIContent.includes('continue to') ||
+        lastAIContent.includes('proceed to the next') ||
+        lastAIContent.includes('move to the next') ||
+        (lastAIContent.includes('move') && lastAIContent.includes('phase')) ||
+        (lastAIContent.includes('ready') && (lastAIContent.includes('next') || lastAIContent.includes('proceed'))) ||
+        (lastAIContent.includes('should we') && (lastAIContent.includes('proceed') || lastAIContent.includes('continue')))
     );
     
-    // If user wants to move on, transition immediately and send transition message
-    if (userWantsToMoveOn(message) || (aiSuggestedMovingOn && isAffirmativeResponse(message))) {
+    // Check if user's message is an affirmative response to AI's suggestion
+    const isAffirmative = isAffirmativeResponse(message);
+    
+    // Debug logging
+    if (lastAIMessage) {
+        console.log('Last AI message:', lastAIContent.substring(0, 100));
+        console.log('AI suggested moving on:', aiSuggestedMovingOn);
+        console.log('User message:', message);
+        console.log('Is affirmative:', isAffirmative);
+    }
+    
+    // If user wants to move on OR agrees to AI's suggestion, transition immediately
+    if (userWantsToMoveOn(message) || (aiSuggestedMovingOn && isAffirmative)) {
+        console.log('Transitioning phase - user wants to move on or agreed to suggestion');
         await moveToNextPhase();
-        // Don't include history - this is just a transition acknowledgment, not a response to the user
-        // Send a simple, hardcoded transition message to avoid AI generating multiple responses
-        const transitionMessage = "Great! Let's move on to developing a detailed persona. This will help us understand your target user better.";
-        addMessageToChat('ai', transitionMessage, true);
-        return;
-        addMessageToChat('ai', transitionResponse, true);
+        // Start the next phase conversation instead of just acknowledging
+        // Process with empty message to trigger initial phase conversation
+        await processPersonaMessage('');
         return;
     }
     
@@ -997,20 +1215,27 @@ Your role is to understand more about the user's problem through open-ended ques
 
 **IMPORTANT GUIDELINES:**
 - Be conversational and natural
-- Ask questions when appropriate to understand the problem better
+- CRITICAL: Keep messages SHORT - 2-3 sentences maximum. Don't elaborate unnecessarily.
+- **CRITICAL QUESTION RULE: Ask ONLY ONE question per message. If you need multiple pieces of information, ask them ONE AT A TIME in separate messages.**
+- **If you absolutely must ask multiple questions, format them as a numbered list (1., 2., 3.) so the user can answer them one by one.**
+- Ask questions when appropriate to understand the problem better, but limit to ONE question per response
 - Don't repeat questions already asked
 - Focus on areas that haven't been covered yet
 - You can suggest moving on when you feel you have enough information, but the user can move on at any time
 - If the user asks to move on, support their decision - do NOT refuse or say it's too early
 - Ask follow-up questions if you need more clarity, but respect the user's choice to move forward
 - If the user explicitly asks to move on, acknowledge and support their request
+- NEVER ask multiple questions in a single sentence or paragraph - this overwhelms the user
 
 **FORMATTING REQUIREMENTS:**
-- Use <br><br> to separate different thoughts
-- Be concise and direct - avoid long blocks of text
-- Use <strong>HTML tags</strong> for emphasis (NOT markdown asterisks)
+- Use <br><br> (double line breaks) frequently to separate different thoughts and sections
+- Use <strong>bold</strong> for key points, important information, and section headers
+- Use <em>italics</em> for emphasis, clarifications, and subtle points
+- Break up your response into digestible chunks with clear visual separation
+- Add line breaks before and after important statements
+- Use formatting to make your response scannable and easy to read
 - NEVER use markdown syntax like **bold** or *italic* - always use HTML tags like <strong>bold</strong> and <em>italic</em>
-- Break up your response into digestible chunks
+- Structure your response with clear sections using <strong>headers</strong> and <br><br> spacing
 
 Current understanding level: ${Math.round((Object.values(understandingAreas).filter(Boolean).length / 6) * 100)}%
 Understanding areas covered: ${Object.values(understandingAreas).filter(Boolean).length}/6
@@ -1022,7 +1247,7 @@ Understanding areas covered: ${Object.values(understandingAreas).filter(Boolean)
 - IMPORTANT: Include any suggestions in your SINGLE response - do not send multiple messages
 - CRITICAL: If the user wants to move on, the system will transition. Do NOT say "it's too early" or refuse - always support the user's choice.
 
-Keep your response concise and conversational.
+Keep your response SHORT - 2-3 sentences maximum. Be direct and concise.
     `);
     
     // Calculate understanding percentage
@@ -1044,32 +1269,51 @@ async function processPersonaMessage(message) {
     console.log('processPersonaMessage called with:', message);
     
     // Check if user is confirming the persona (affirmative response) or wants to move on
-    // Look at the last AI message to see if it asked for confirmation
+    // Look at the last AI message to see if it asked for confirmation or suggested moving on
     const lastAIMessage = chatHistory.filter(msg => msg.sender === 'ai').slice(-1)[0];
     const askedForConfirmation = lastAIMessage && (
         lastAIMessage.content.toLowerCase().includes('does this persona') ||
         lastAIMessage.content.toLowerCase().includes('accurately reflect') ||
-        lastAIMessage.content.toLowerCase().includes('ready to move on') ||
-        lastAIMessage.content.toLowerCase().includes('make any changes')
+        lastAIMessage.content.toLowerCase().includes('make any changes') ||
+        lastAIMessage.content.toLowerCase().includes('would you like to') ||
+        lastAIMessage.content.toLowerCase().includes('should we')
     );
     
-    // If AI asked for confirmation and user gives affirmative response, move on
-    if (askedForConfirmation && isAffirmativeResponse(message)) {
-        // Transition phase first
+    const lastAIContent = lastAIMessage ? lastAIMessage.content.toLowerCase() : '';
+    const aiSuggestedMovingOn = lastAIMessage && (
+        lastAIContent.includes('ready to move on') ||
+        lastAIContent.includes('move on to') ||
+        lastAIContent.includes('proceed to') ||
+        lastAIContent.includes('next phase') ||
+        lastAIContent.includes('should we move') ||
+        lastAIContent.includes('would you like to move') ||
+        lastAIContent.includes('ready to proceed') ||
+        lastAIContent.includes('move forward') ||
+        lastAIContent.includes('continue to') ||
+        lastAIContent.includes('proceed to the next') ||
+        lastAIContent.includes('move to the next') ||
+        (lastAIContent.includes('move') && lastAIContent.includes('phase')) ||
+        (lastAIContent.includes('ready') && (lastAIContent.includes('next') || lastAIContent.includes('proceed'))) ||
+        (lastAIContent.includes('should we') && (lastAIContent.includes('proceed') || lastAIContent.includes('continue')))
+    );
+    
+    const isAffirmative = isAffirmativeResponse(message);
+    
+    // If AI asked for confirmation or suggested moving on, and user gives affirmative response, move on immediately
+    if ((askedForConfirmation || aiSuggestedMovingOn) && isAffirmative) {
+        console.log('User confirmed/said yes - transitioning phase immediately');
         await moveToNextPhase();
-        // Send a simple, hardcoded transition message to avoid AI generating multiple responses
-        const transitionMessage = "Perfect! Now let's refine the problem statement to expand possibilities for creative solutions.";
-        addMessageToChat('ai', transitionMessage, true);
+        // Start the next phase conversation instead of just acknowledging
+        await processProblemRefinementMessage('');
         return;
     }
     
     // Check if user wants to move on explicitly
     if (userWantsToMoveOn(message)) {
-        // Transition phase first
+        console.log('User explicitly wants to move on - transitioning phase immediately');
         await moveToNextPhase();
-        // Send a simple, hardcoded transition message to avoid AI generating multiple responses
-        const transitionMessage = "Perfect! Now let's refine the problem statement to expand possibilities for creative solutions.";
-        addMessageToChat('ai', transitionMessage, true);
+        // Start the next phase conversation instead of just acknowledging
+        await processProblemRefinementMessage('');
         return;
     }
     
@@ -1095,18 +1339,23 @@ IMPORTANT GUIDELINES:
 - Be specific about what you're changing and why
 - CLEARLY distinguish between what the user provided vs. what you extrapolated
 - Use quotes for any direct user statements
-- When you've made the changes, ask "Does this updated persona better reflect what you had in mind, or would you like to make any other adjustments?"
+- **CRITICAL QUESTION RULE: Ask ONLY ONE question per message. If you need multiple pieces of information, ask them ONE AT A TIME in separate messages.**
+- **If you absolutely must ask multiple questions, format them as a numbered list (1., 2., 3.) so the user can answer them one by one.**
+- When you've made the changes, ask ONE question like "Does this updated persona better reflect what you had in mind?"
 
 FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different sections
+- Use <br><br> (double line breaks) frequently to separate different sections and thoughts
+- Use <strong>bold</strong> for section headers, key details, and important information
+- Use <em>italics</em> for emphasis, clarifications, and distinguishing user-provided vs. extrapolated content
 - For each section, clearly state what was provided vs. extrapolated
 - Use quotes for user-provided information: "User said: 'exact quote'"
-- Use "I extrapolated:" for AI-generated details
+- Use <em>"I extrapolated:"</em> for AI-generated details
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct
-- Use <strong>HTML tags</strong> for section headers and key details (NOT markdown **bold**)
-- NEVER use markdown syntax like **bold** or *italic* - always use HTML tags
-- Break up your response into digestible chunks
+- Add line breaks before and after each major section
+- Structure your response with clear visual hierarchy using <strong>headers</strong> and spacing
+- NEVER use markdown syntax like **bold** or *italic* - always use HTML tags like <strong>bold</strong> and <em>italic</em>
+- Break up your response into digestible, visually separated chunks
         `);
         
         addMessageToChat('ai', revisionResponse, true);
@@ -1119,6 +1368,11 @@ FORMATTING REQUIREMENTS:
     }
     
     // Don't send a separate message - let the AI response include this context
+    const isPhaseStart = !message || message.trim() === '';
+    const userContext = isPhaseStart 
+        ? "We're starting the persona development phase. Based on the conversation history, begin by creating a detailed persona or asking ONE question to gather more information needed for the persona."
+        : `The user has shared: "${message}"`;
+    
     const response = await callClaudeAPI(`
 You are a product manager and design consultant in the PERSONA PHASE.
 
@@ -1141,7 +1395,7 @@ You are in the persona development phase. The phases are:
 The user's problem statement is: "${problemStatement || 'Not yet defined'}"
 **YOU MUST REMEMBER THIS PROBLEM STATEMENT** - it is the core of what we're solving. The persona you create should be relevant to this specific problem. Always keep this problem in mind when creating the persona.
 
-The user has shared: "${message}"
+${userContext}
 
 Your task is to create a detailed persona based on the information gathered. The persona should be relevant to solving this problem: "${problemStatement || 'Not yet defined'}". Focus on:
 - Demographics (age, occupation, lifestyle if mentioned)
@@ -1152,6 +1406,7 @@ Your task is to create a detailed persona based on the information gathered. The
 - Emotional state and mindset
 
 IMPORTANT GUIDELINES:
+- Keep messages SHORT - 2-3 sentences maximum. Don't elaborate unnecessarily.
 - If the user gives specific details (age, occupation, etc.), treat them as set in stone
 - Fill in other details by extrapolating from what they've shared
 - CLEARLY distinguish between what the user provided vs. what you extrapolated
@@ -1160,6 +1415,9 @@ IMPORTANT GUIDELINES:
 - You can suggest moving on when you feel the persona is complete, but the user can move on at any time
 - If the user asks to move on, support their decision - do NOT refuse or say it's too early
 - Present the persona naturally and let the conversation flow
+- **CRITICAL QUESTION RULE: Ask ONLY ONE question per message. If you need multiple pieces of information, ask them ONE AT A TIME in separate messages.**
+- **If you absolutely must ask multiple questions, format them as a numbered list (1., 2., 3.) so the user can answer them one by one.**
+- NEVER ask multiple questions in a single sentence or paragraph - this overwhelms the user
 - IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 
 FORMATTING REQUIREMENTS:
@@ -1172,7 +1430,7 @@ FORMATTING REQUIREMENTS:
 - NEVER use markdown syntax like **bold** or *italic* - always use HTML tags
 - Break up your response into digestible chunks
 
-Keep your response concise and conversational.
+Keep your response SHORT - 2-3 sentences maximum. Be direct and concise.
     `);
     
     // Store the persona and update the card with full content
@@ -1189,22 +1447,40 @@ Keep your response concise and conversational.
 async function processProblemRefinementMessage(message) {
     // Check if AI suggested moving on in previous message and user agrees BEFORE generating response
     const lastAIMessage = chatHistory.filter(msg => msg.sender === 'ai').slice(-1)[0];
+    const lastAIContent = lastAIMessage ? lastAIMessage.content.toLowerCase() : '';
     const aiSuggestedMovingOn = lastAIMessage && (
-        lastAIMessage.content.toLowerCase().includes('ready to move on') ||
-        lastAIMessage.content.toLowerCase().includes('move on to') ||
-        lastAIMessage.content.toLowerCase().includes('proceed to') ||
-        lastAIMessage.content.toLowerCase().includes('next phase') ||
-        lastAIMessage.content.toLowerCase().includes('satisfied with this reframing')
+        lastAIContent.includes('ready to move on') ||
+        lastAIContent.includes('move on to') ||
+        lastAIContent.includes('proceed to') ||
+        lastAIContent.includes('next phase') ||
+        lastAIContent.includes('satisfied with this reframing') ||
+        lastAIContent.includes('should we move') ||
+        lastAIContent.includes('would you like to move') ||
+        lastAIContent.includes('ready to proceed') ||
+        lastAIContent.includes('move forward') ||
+        lastAIContent.includes('continue to') ||
+        lastAIContent.includes('proceed to the next') ||
+        lastAIContent.includes('move to the next') ||
+        (lastAIContent.includes('move') && lastAIContent.includes('phase')) ||
+        (lastAIContent.includes('ready') && (lastAIContent.includes('next') || lastAIContent.includes('proceed'))) ||
+        (lastAIContent.includes('should we') && (lastAIContent.includes('proceed') || lastAIContent.includes('continue')))
     );
     
+    const isAffirmative = isAffirmativeResponse(message);
+    
     // If user wants to move on, transition immediately and send transition message
-    if (userWantsToMoveOn(message) || (aiSuggestedMovingOn && isAffirmativeResponse(message))) {
+    if (userWantsToMoveOn(message) || (aiSuggestedMovingOn && isAffirmative)) {
+        console.log('User wants to move on - transitioning phase immediately');
         await moveToNextPhase();
-        // Send a simple, hardcoded transition message to avoid AI generating multiple responses
-        const transitionMessage = "Excellent! Now let's generate some creative prompts to help you brainstorm solutions.";
-        addMessageToChat('ai', transitionMessage, true);
+        // Start the next phase conversation instead of just acknowledging
+        await processPromptGenerationMessage('');
         return;
     }
+    
+    const isPhaseStart = !message || message.trim() === '';
+    const userContext = isPhaseStart
+        ? "We're starting the problem statement refinement phase. Based on the conversation history, begin by reframing the problem statement or asking ONE question if you need clarification."
+        : `The user has shared: "${message}"`;
     
     const response = await callClaudeAPI(`
 You are a product manager and design consultant in the PROBLEM STATEMENT REFINEMENT PHASE.
@@ -1228,36 +1504,35 @@ You are in the problem statement refinement phase. The phases are:
 Original problem statement: "${problemStatement || 'Not yet defined'}"
 Persona context: "${persona || 'Not yet created'}"
 
-The user has shared: "${message}"
+${userContext}
 
 **IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure you're refining the problem statement correctly.
 
-Your task is to reframe the problem statement to expand possibilities for ideation and creativity. Focus on:
-- Making the problem statement more concise and clear
-- Broadening or narrowing the scope as needed
-- Enhancing understanding of the core problem
-- Opening up new angles for creative solutions
-- Connecting to the persona's needs and context
+Your task is to reframe the problem statement to expand possibilities for ideation and creativity. 
 
 IMPORTANT GUIDELINES:
-- Explain WHY you're changing the problem statement
-- Don't just insert things from previous phases - make it concise
-- Sometimes make it broader, sometimes more specific
-- Enhance the user's understanding of the problem
-- Present the reframed statement clearly
+- Keep your response SHORT and DIRECT - maximum 2-3 sentences
+- Present the reframed problem statement clearly and concisely
+- Don't elaborate unnecessarily - just reframe and move forward
 - You can suggest moving on when you feel the reframing is effective, but the user can move on at any time
 - If the user asks to move on, support their decision - do NOT refuse or say it's too early
+- **CRITICAL QUESTION RULE: Ask ONLY ONE question per message. If you need multiple pieces of information, ask them ONE AT A TIME in separate messages.**
+- **If you absolutely must ask multiple questions, format them as a numbered list (1., 2., 3.) so the user can answer them one by one.**
+- NEVER ask multiple questions in a single sentence or paragraph - this overwhelms the user
 - IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 - CRITICAL: If the user wants to move on, the system will transition. Do NOT say "it's too early" or refuse - always support the user's choice.
 
 FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different sections
+- Use <br><br> (double line breaks) frequently to separate different sections and thoughts
+- Use <strong>bold</strong> for the reframed problem statement, key changes, and important points
+- Use <em>italics</em> for explanations, reasoning, and subtle clarifications
+- Add line breaks before and after the main reframed statement
+- Structure your response with clear visual separation
 - Be concise and direct - avoid long blocks of text
-- Use <strong>HTML tags</strong> for section headers and key changes (NOT markdown **bold**)
 - NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
-- Break up your response into digestible chunks
+- Break up your response into digestible, visually separated chunks
 
-Keep your response concise and conversational.
+Keep your response SHORT - 2-3 sentences maximum. Be direct and concise, but use formatting to make it visually appealing.
     `);
     
     // Store the reframed problem and update the sidebar
@@ -1312,22 +1587,46 @@ Original problem statement: "${problemStatement || 'Not yet defined'}"
 Reframed problem statement: "${reframedProblem || problemStatement || 'Not yet defined'}"
 Persona context: "${persona || 'Not yet created'}"
 
-The user has shared: "${message}"
+${(!message || message.trim() === '') 
+    ? "We're starting the creative prompt generation phase. Based on the conversation history, begin by providing creative prompts to help brainstorm solutions, or ask ONE question if you need more context."
+    : `The user has shared: "${message}"`}
 
 **IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure your prompts are relevant to the problem being solved.
 
-Your task is to provide creative prompts that help the user brainstorm solutions. Focus on:
-- Prompts related to the reframed problem and persona
-- Drawing inspiration from other industries
-- Pushing thinking outside the box
-- Making prompts actionable and specific
-- Encouraging creative exploration
+**CRITICAL CONTEXT ABOUT SAVED IDEAS:**
+- When users respond to your prompts with ideas, those ideas are automatically saved
+- Each saved idea is directly related to the prompt that immediately preceded it
+- If a user shares an idea after you send a prompt, that idea is their response to that specific prompt
+
+**CRITICAL: IDEATION PHILOSOPHY - SHALLOW AND WIDE, NOT DEEP AND NARROW**
+- Your goal is to generate MANY DIFFERENT prompts exploring DIFFERENT angles and approaches
+- When a user shares an idea, DO NOT develop or drill down on that idea
+- Instead, generate a COMPLETELY NEW prompt exploring a DIFFERENT angle, perspective, or approach
+- Jump around to different ideas - explore many possibilities, not one deeply
+- Each prompt should explore a fresh, different direction
+- Think "shallow and wide" - many diverse prompts, not "deep and narrow" - developing one idea
+- If you've already given prompts about accessibility, try prompts about gamification, or cost, or speed, or community, etc.
+- Variety and breadth are more important than depth in this phase
+- The evaluation phase is where ideas get developed - this phase is just for generating diverse prompts
+
+Your task is to provide ONE creative prompt that helps the user brainstorm solutions from a NEW, DIFFERENT angle.
+
+**CRITICAL PROMPT STRUCTURE - YOU MUST FOLLOW THIS EXACT FORMAT:**
+
+1. **Short Title** (3-5 words, bold using <strong> tags)
+2. **Connection** (one sentence connecting to the persona/problem, italicized using <em> tags)
+3. **Creative Prompt** (the actual brainstorming question, bold using <strong> tags)
+
+**EXAMPLE FORMAT:**
+<strong>Design for Accessibility</strong><br><br>
+<em>This connects to your persona's need for inclusive solutions.</em><br><br>
+<strong>How might we redesign this experience to be accessible to users with different abilities?</strong>
 
 IMPORTANT GUIDELINES:
-- Provide creative prompts that help the user brainstorm solutions
-- Make prompts specific to their problem and persona
+- Provide ONLY ONE prompt per response
+- Make the prompt specific to their problem and persona
 - Draw from different industries and approaches
-- Keep responses conversational
+- Keep the entire response SHORT - just the title, connection, and prompt
 - The user can move to the next phase at any time - support their decision if they ask to move on
 - The prompt generation phase is ongoing - users can generate ideas and you can provide more prompts as needed
 - If the user asks to move on, do NOT refuse or say it's too early
@@ -1335,148 +1634,232 @@ IMPORTANT GUIDELINES:
 - IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 
 FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different sections
-- Be concise and direct - avoid long blocks of text
-- Use <strong>HTML tags</strong> for emphasis (NOT markdown **bold**)
+- Use <strong>HTML tags</strong> for the title (NOT markdown **bold**)
+- Use <em>HTML tags</em> for the connection sentence (NOT markdown *italic*)
+- Use <strong>HTML tags</strong> for the creative prompt question (NOT markdown **bold**)
+- Use <br><br> (double line break) to separate title, connection, and prompt sections
+- Be concise and direct
 - NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
-- Break up your response into digestible chunks
 
-Keep your response concise and conversational.
+Keep your response SHORT - just the title, connection sentence, and prompt.
     `);
     
     addMessageToChat('ai', response, true);
     
-    // Extract and display prompts from the response
-    // This uses the more robust extraction function
-    extractAndDisplayPrompts(response);
-    
-    // Also try the original parsing method as fallback
-    const promptLines = response.split('\n').filter(line => 
-        (line.trim().match(/^[-*•]\s/) || line.trim().match(/^\d+\.\s/)) && line.trim().length > 10
-    );
-    
-    if (promptLines.length > 0 && generatedPrompts.length === 0) {
-        // If extraction didn't work but we found prompts with the old method, use those
-        generatedPrompts = promptLines.map((line, index) => ({
-            id: Date.now() + index,
-            text: line.replace(/^[-*•]|\d+\.\s*/, ''),
-            source: 'AI Generated'
-        }));
-        displayPromptsInPanel();
+    // Extract and store the prompt details from the response for future idea saving
+    // This ensures we can capture title and connection when user saves an idea
+    const extractedPrompt = extractPromptFromMessage(response);
+    if (extractedPrompt.title || extractedPrompt.text) {
+        // Check if this prompt already exists
+        const exists = generatedPrompts.some(p => {
+            const existingText = p.text || '';
+            const existingTitle = p.title || '';
+            return (existingText.toLowerCase().trim() === (extractedPrompt.text || '').toLowerCase().trim() && extractedPrompt.text) ||
+                   (existingTitle.toLowerCase().trim() === (extractedPrompt.title || '').toLowerCase().trim() && extractedPrompt.title);
+        });
+        
+        if (!exists) {
+            // Add to generatedPrompts array so we can reference it when saving ideas
+            const newPrompt = {
+                id: Date.now() + Math.random() * 1000,
+                title: extractedPrompt.title || '',
+                connection: extractedPrompt.connection || '',
+                text: extractedPrompt.text || response,
+                source: 'AI Generated'
+            };
+            generatedPrompts.push(newPrompt);
+            console.log('Stored prompt for idea saving:', newPrompt);
+        }
     }
     
-    console.log('Generated prompts:', generatedPrompts);
+    // Prompts are now shown in the chat, not in the sidebar
+    // The sidebar now shows saved ideas instead
     
     // Ideation is now the final phase - no auto-move needed
 }
 
 
 // Extract prompts from AI response and display them
+// New structure: Title, Connection, Creative Prompt
 function extractAndDisplayPrompts(aiResponse) {
     if (!aiResponse || typeof aiResponse !== 'string') return;
     
-    // More robust prompt extraction - look for various formats
-    const lines = aiResponse.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    // Parse the structured format: Title (bold), Connection (one sentence), Creative Prompt
+    // Look for <strong> tags for title, then connection sentence, then prompt
     
-    const promptPatterns = [
-        /^[-*•]\s+(.+)$/,           // Bullet points: - prompt, * prompt, • prompt
-        /^\d+\.\s+(.+)$/,           // Numbered: 1. prompt, 2. prompt
-        /^[a-z]\)\s+(.+)$/i,        // Lettered: a) prompt, b) prompt
-        /^[ivx]+\)\s+(.+)$/i,       // Roman numerals: i) prompt, ii) prompt
-    ];
+    let title = '';
+    let connection = '';
+    let promptText = '';
     
-    const extractedPrompts = [];
+    // Extract title from first <strong> tags
+    const titleMatch = aiResponse.match(/<strong>(.+?)<\/strong>/i);
+    if (titleMatch) {
+        title = titleMatch[1].trim();
+    }
     
-    for (const line of lines) {
-        // Skip HTML tags and empty lines
-        if (line.startsWith('<') || line.length < 10) continue;
-        
-        // Try each pattern
-        for (const pattern of promptPatterns) {
-            const match = line.match(pattern);
-            if (match && match[1]) {
-                const promptText = match[1].trim();
-                // Make sure it's substantial (not just a word or two)
-                if (promptText.length > 15 && !extractedPrompts.includes(promptText)) {
-                    extractedPrompts.push(promptText);
-                    break;
-                }
-            }
+    // Extract connection from <em> tags
+    const connectionMatch = aiResponse.match(/<em>(.+?)<\/em>/i);
+    if (connectionMatch) {
+        connection = connectionMatch[1].trim();
+    }
+    
+    // Remove HTML tags for parsing (but keep structure)
+    const textOnly = aiResponse.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // If we didn't find connection in <em> tags, try pattern matching
+    if (!connection) {
+        const connectionPattern = /(?:This|This prompt|It|The prompt).*?(?:connects?|relates?|addresses?|links?|ties?|applies? to).*?[.!?]/i;
+        const connectionMatchText = textOnly.match(connectionPattern);
+        if (connectionMatchText) {
+            connection = connectionMatchText[0].trim();
         }
+    }
+    
+    // Find the actual prompt - look for second <strong> tag (the creative prompt)
+    const strongMatches = aiResponse.match(/<strong>(.+?)<\/strong>/gi);
+    if (strongMatches && strongMatches.length > 1) {
+        // Second <strong> tag is the creative prompt
+        const promptMatch = strongMatches[1].match(/<strong>(.+?)<\/strong>/i);
+        if (promptMatch) {
+            promptText = promptMatch[1].trim();
+        }
+    }
+    
+    // Fallback: Find prompt by pattern if not found in <strong> tags
+    if (!promptText) {
+        const promptPatterns = [
+            /(?:How might we|What if|Imagine|Consider|Explore|Think about|Brainstorm|Design|Create|Build|Develop).+?[.!?]/i,
+            /(?:How can|What would|How would|What could).+?[.!?]/i
+        ];
         
-        // Also check for prompts that might be in HTML format but still readable
-        // Remove HTML tags and check if it looks like a prompt
-        const textOnly = line.replace(/<[^>]*>/g, '').trim();
-        if (textOnly.length > 15 && textOnly.length < 200) {
-            // Check if it starts with common prompt indicators
-            const promptIndicators = ['how might we', 'what if', 'imagine', 'consider', 'explore', 'think about', 'brainstorm'];
-            const lowerText = textOnly.toLowerCase();
-            if (promptIndicators.some(indicator => lowerText.startsWith(indicator)) && 
-                !extractedPrompts.includes(textOnly)) {
-                extractedPrompts.push(textOnly);
+        for (const pattern of promptPatterns) {
+            const match = textOnly.match(pattern);
+            if (match) {
+                promptText = match[0].trim();
+                break;
             }
         }
     }
     
-    // If we found prompts, add them to generatedPrompts
-    if (extractedPrompts.length > 0) {
-        const newPrompts = extractedPrompts.map((text, index) => {
-            // Check if this prompt already exists
-            const exists = generatedPrompts.some(p => 
-                p.text.toLowerCase().trim() === text.toLowerCase().trim()
-            );
-            if (exists) return null;
-            
-            return {
-                id: Date.now() + index + Math.random() * 1000,
-                text: text,
+    // If we couldn't find structured parts, try to extract from the full response
+    if (!title && !connection && !promptText) {
+        // Fallback: use the entire response as the prompt
+        promptText = textOnly;
+    }
+    
+    // If we found at least a prompt, add it
+    if (promptText || title) {
+        // Check if this prompt already exists
+        const exists = generatedPrompts.some(p => {
+            const existingText = p.text || '';
+            const existingTitle = p.title || '';
+            return (existingText.toLowerCase().trim() === promptText.toLowerCase().trim() && promptText) ||
+                   (existingTitle.toLowerCase().trim() === title.toLowerCase().trim() && title);
+        });
+        
+        if (!exists) {
+            const newPrompt = {
+                id: Date.now() + Math.random() * 1000,
+                title: title || '',
+                connection: connection || '',
+                text: promptText || textOnly.substring(0, 200),
                 source: 'AI Generated'
             };
-        }).filter(p => p !== null);
-        
-        if (newPrompts.length > 0) {
-            generatedPrompts = [...generatedPrompts, ...newPrompts];
-            displayPromptsInPanel();
-            console.log('Extracted and displayed prompts:', newPrompts);
+            
+            generatedPrompts = [...generatedPrompts, newPrompt];
+            // Prompts are shown in chat, sidebar shows saved ideas
+            console.log('Extracted prompt:', newPrompt);
         }
     }
 }
 
-// Display prompts in side panel
-function displayPromptsInPanel() {
+// Extract prompt details from an AI message (helper function)
+function extractPromptFromMessage(messageContent) {
+    if (!messageContent) return { title: null, connection: null, text: null };
+    
+    let title = '';
+    let connection = '';
+    let promptText = '';
+    
+    // Extract title from first <strong> tags
+    const titleMatch = messageContent.match(/<strong>(.+?)<\/strong>/i);
+    if (titleMatch) {
+        title = titleMatch[1].trim();
+    }
+    
+    // Extract connection from <em> tags
+    const connectionMatch = messageContent.match(/<em>(.+?)<\/em>/i);
+    if (connectionMatch) {
+        connection = connectionMatch[1].trim();
+    }
+    
+    // Find the actual prompt - look for second <strong> tag (the creative prompt)
+    const strongMatches = messageContent.match(/<strong>(.+?)<\/strong>/gi);
+    if (strongMatches && strongMatches.length > 1) {
+        // Second <strong> tag is the creative prompt
+        const promptMatch = strongMatches[1].match(/<strong>(.+?)<\/strong>/i);
+        if (promptMatch) {
+            promptText = promptMatch[1].trim();
+        }
+    }
+    
+    // Fallback: try to find prompt by pattern
+    if (!promptText) {
+        const textOnly = messageContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        const promptPatterns = [
+            /(?:How might we|What if|Imagine|Consider|Explore|Think about|Brainstorm|Design|Create|Build|Develop).+?[.!?]/i,
+            /(?:How can|What would|How would|What could).+?[.!?]/i
+        ];
+        
+        for (const pattern of promptPatterns) {
+            const match = textOnly.match(pattern);
+            if (match) {
+                promptText = match[0].trim();
+                break;
+            }
+        }
+    }
+    
+    return { title, connection, text: promptText };
+}
+
+// Display saved ideas in right sidebar
+function displaySavedIdeasInSidebar() {
     if (!promptsList) return;
     
     promptsList.innerHTML = '';
     
-    if (generatedPrompts.length === 0) {
+    if (savedIdeas.length === 0) {
         promptsList.innerHTML = `
             <div class="empty-state">
                 <div class="empty-icon">💡</div>
-                <p>Prompts will appear here as we generate them</p>
+                <p>Your ideas will appear here as you create them</p>
             </div>
           `;
-    return;
-  }
+        return;
+    }
   
-    generatedPrompts.forEach(prompt => {
-        const promptCard = document.createElement('div');
-        promptCard.className = 'prompt-card';
-        promptCard.innerHTML = `
-            <div class="prompt-text">${prompt.text}</div>
-            <div class="prompt-meta">
-                <span class="prompt-source">${prompt.source}</span>
+    savedIdeas.forEach((idea, index) => {
+        const ideaCard = document.createElement('div');
+        ideaCard.className = 'prompt-card';
+        
+        const title = idea.promptTitle || `Idea #${savedIdeas.length - index}`;
+        ideaCard.innerHTML = `
+            <div class="saved-idea-header">
+                <h4 class="saved-idea-title">${title}</h4>
+                <span class="saved-idea-date">${new Date(idea.timestamp).toLocaleDateString()}</span>
             </div>
-            <div class="prompt-input-container">
-                <label class="prompt-input-label">Your Idea</label>
-                <textarea 
-                    class="prompt-input" 
-                    placeholder="Type your idea here and press Enter to add it to the chat..."
-                    onkeydown="handlePromptInputKeydown(event, '${prompt.id}')"
-                    oninput="autoResizeTextarea(this)"
-                ></textarea>
-            </div>
+            <div class="saved-idea-content">${idea.content}</div>
+            ${idea.promptConnection ? `
+                <div class="saved-idea-prompt-label">Rationale:</div>
+                <div class="saved-idea-prompt">${idea.promptConnection}</div>
+            ` : ''}
+            ${idea.prompt ? `
+                <div class="saved-idea-prompt-label">Inspired by:</div>
+                <div class="saved-idea-prompt">${idea.prompt}</div>
+            ` : ''}
           `;
-        promptsList.appendChild(promptCard);
+        promptsList.appendChild(ideaCard);
     });
 }
 
@@ -1492,9 +1875,11 @@ function handlePromptInputKeydown(event, promptId) {
             // Find the prompt that was used
             const prompt = generatedPrompts.find(p => p.id == promptId);
             const promptText = prompt ? prompt.text : null;
+            const promptTitle = prompt ? prompt.title : null;
+            const promptConnection = prompt ? prompt.connection : null;
             
-            // Save the idea with the prompt
-            saveIdea(idea, promptText);
+            // Save the idea with the prompt details
+            saveIdea(idea, promptText, promptTitle, promptConnection);
             
             // Add the idea to chat
             addMessageToChat('user', idea);
@@ -1553,31 +1938,45 @@ The user has shared: "${message}"
 
 **IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure your evaluation is relevant to the problem being solved.
 
+**EVALUATION PHASE - THIS IS WHERE YOU CAN DEVELOP IDEAS:**
+- In the ideation phase, we generate many different prompts (shallow and wide)
+- In THIS evaluation phase, you can help develop and refine ideas (deep and narrow)
+- You can ask questions to help develop the idea further
+- You can suggest improvements, variations, or next steps
+- This is the appropriate place to drill down and explore an idea in depth
+
 Your task is to provide constructive feedback on the user's idea. Focus on:
 - Highlighting the strengths of the idea
 - Identifying potential gaps or challenges
 - Suggesting improvements or variations
 - Relating back to the problem and persona
 - Being constructive and encouraging
+- **Can include questions to help develop the idea further** (this is appropriate in evaluation phase)
 
 IMPORTANT GUIDELINES:
 - Be specific about what works well
-- Ask probing questions to help them think deeper
+- **CRITICAL QUESTION RULE: Ask ONLY ONE question per message. If you need multiple pieces of information, ask them ONE AT A TIME in separate messages.**
+- **If you absolutely must ask multiple questions, format them as a numbered list (1., 2., 3.) so the user can answer them one by one.**
+- Ask probing questions to help them think deeper, but limit to ONE question per response
 - Suggest concrete improvements
 - Connect the idea back to the persona's needs
 - The user can move to the next phase at any time - support their decision if they ask to move on
 - After evaluation, you can suggest generating new prompts, but the user controls when to move forward
 - If the user asks to move on, do NOT refuse or say it's too early
+- NEVER ask multiple questions in a single sentence or paragraph - this overwhelms the user
 
 FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different sections (Strengths, Challenges, Suggestions)
+- Use <br><br> (double line breaks) frequently to separate different sections (Strengths, Challenges, Suggestions)
+- Use <strong>bold</strong> for section headers (e.g., <strong>Strengths:</strong>, <strong>Challenges:</strong>, <strong>Suggestions:</strong>) and key points
+- Use <em>italics</em> for emphasis, examples, and subtle observations
+- Add line breaks before and after each major section
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
-- Use <strong>HTML tags</strong> for section headers and key points (NOT markdown **bold**)
+- Structure your response with clear visual hierarchy
 - NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
-- Break up your response into digestible chunks
+- Break up your response into digestible, visually separated chunks
 
-Keep your response concise and conversational.
+Keep your response concise and conversational, but use formatting to make it visually appealing and easy to scan.
     `);
     
     // Check if user wants to move on or generate new prompts BEFORE sending response
@@ -1614,7 +2013,19 @@ Persona context: "${persona || 'Not yet created'}"
 
 Idea to evaluate: "${idea}"
 
+**CONTEXT ABOUT THIS IDEA:**
+- This idea was saved in response to a creative prompt that directly preceded it
+- The idea is related to the most recent prompt you provided
+- Consider the prompt context when evaluating the idea's relevance and creativity
+
 **IMPORTANT:** You have access to the full conversation history above. Use it to understand the context and ensure your evaluation is relevant to the problem being solved.
+
+**EVALUATION PHASE - THIS IS WHERE YOU CAN DEVELOP IDEAS:**
+- In the ideation phase, we generate many different prompts (shallow and wide)
+- In THIS evaluation phase, you can help develop and refine ideas (deep and narrow)
+- You can ask questions to help develop the idea further
+- You can suggest improvements, variations, or next steps
+- This is the appropriate place to drill down and explore an idea in depth
 
 Provide feedback that:
 - Highlights the strengths of the idea
@@ -1622,14 +2033,18 @@ Provide feedback that:
 - Suggests improvements or variations
 - Relates back to the problem and persona
 - Is constructive and encouraging
+- **Can include questions to help develop the idea further** (this is appropriate in evaluation phase)
 
 FORMATTING REQUIREMENTS:
-- Use <br><br> to separate different sections (Strengths, Challenges, Suggestions)
+- Use <br><br> (double line breaks) frequently to separate different sections (Strengths, Challenges, Suggestions)
+- Use <strong>bold</strong> for section headers (e.g., <strong>Strengths:</strong>, <strong>Challenges:</strong>, <strong>Suggestions:</strong>) and key points
+- Use <em>italics</em> for emphasis, examples, and subtle observations
+- Add line breaks before and after each major section
 - Keep each section to 1-2 sentences maximum
 - Be concise and direct - avoid long blocks of text
-- Use <strong>HTML tags</strong> for section headers and key points (NOT markdown **bold**)
+- Structure your response with clear visual hierarchy
 - NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
-- Break up your response into digestible chunks
+- Break up your response into digestible, visually separated chunks
         `);
         
         addMessageToChat('ai', evaluation, true);
@@ -1664,9 +2079,13 @@ Generate 2-3 NEW creative prompts that:
 IMPORTANT FORMATTING:
 - Start with a brief introduction (1 sentence)
 - Format each prompt on a new line with a number (1., 2., etc.) or bullet point
-- Use <br><br> to separate sections
-- Use <strong>HTML tags</strong> for emphasis (NOT markdown)
-- Keep the entire response concise and conversational
+- Use <br><br> (double line breaks) frequently to separate sections and prompts
+- Use <strong>bold</strong> for emphasis, key points, and important information
+- Use <em>italics</em> for clarifications and subtle points
+- Add line breaks before and after each prompt
+- Structure your response with clear visual separation
+- Use <strong>HTML tags</strong> for formatting (NOT markdown)
+- Keep the entire response concise and conversational, but visually appealing
         `);
         
         // Parse and add new prompts from the response
@@ -1683,8 +2102,7 @@ IMPORTANT FORMATTING:
         // Add to existing prompts
         if (newPrompts.length > 0) {
             generatedPrompts = [...generatedPrompts, ...newPrompts];
-            // Display updated prompts
-            displayPromptsInPanel();
+            // Prompts are shown in chat, sidebar shows saved ideas
         }
         
         // Send the AI's response directly (it should already include the prompts)
@@ -1700,6 +2118,11 @@ IMPORTANT FORMATTING:
 async function generateSuggestedResponses() {
     if (!suggestedResponsesList) return;
     
+    // Don't generate suggested responses if left sidebar is collapsed
+    if (leftSidebar && leftSidebar.classList.contains('collapsed')) {
+        return;
+    }
+    
     // Use phase index for objective phase tracking
     const phaseIndex = currentPhaseIndex;
     const phaseName = PHASE_ORDER[phaseIndex];
@@ -1711,9 +2134,7 @@ async function generateSuggestedResponses() {
 You are helping generate suggested responses for a user in a brainstorming session. Based on the current conversation context, suggest 3-4 responses that the USER might want to say next.
 
 Current phase: ${phaseName} (Phase ${phaseIndex + 1} of 5)
-Problem statement: "${problemStatement || 'Not yet defined'}"
-Persona: "${persona || 'Not yet created'}"
-Recent conversation: ${chatHistory.slice(-4).map(msg => `${msg.sender}: ${msg.content}`).join('\n')}
+Last message: ${chatHistory.slice(-1)[0]?.content?.substring(0, 150) || 'New conversation'}
 
 ${phaseIndex === 0 ? `
 **IMPORTANT: You are in the CONTEXTUALIZING phase. DO NOT suggest ideas or solutions.**
@@ -1773,7 +2194,7 @@ Each response should be:
 Format each response on a new line with a number (1., 2., etc.)
 
 Focus on what the user might naturally want to say next in this conversation.
-        `);
+        `, false, 300); // Don't include full history, use moderate max_tokens for 1-2 sentence responses
         
         // Parse suggested responses
         const responseLines = response.split('\n').filter(line => 
@@ -2000,19 +2421,25 @@ function switchTab(tabName) {
 }
 
 // Idea Saving
-let savedIdeas = JSON.parse(localStorage.getItem('mutagenSavedIdeas') || '[]');
+// Note: Saved ideas are cleared on page refresh (localStorage persistence removed temporarily)
+let savedIdeas = [];
 
-function saveIdea(idea, promptText = null) {
+function saveIdea(idea, promptText = null, promptTitle = null, promptConnection = null) {
     const ideaData = {
         id: Date.now(),
         content: idea,
         prompt: promptText,
+        promptTitle: promptTitle,
+        promptConnection: promptConnection,
         timestamp: new Date().toISOString(),
         phase: currentPhase
     };
     
     savedIdeas.unshift(ideaData); // Add to beginning
-    localStorage.setItem('mutagenSavedIdeas', JSON.stringify(savedIdeas));
+    // localStorage persistence removed - ideas will be cleared on page refresh
+    
+    // Update the right sidebar with saved ideas
+    displaySavedIdeasInSidebar();
     
     // If we're on the saved ideas tab, refresh the display
     if (savedIdeasContent && savedIdeasContent.classList.contains('active')) {
@@ -2034,24 +2461,80 @@ function loadSavedIdeas() {
         return;
     }
     
-    savedIdeasList.innerHTML = savedIdeas.map(idea => `
+    savedIdeasList.innerHTML = savedIdeas.map((idea, index) => {
+        const title = idea.promptTitle || `Idea #${savedIdeas.length - index}`;
+        return `
         <div class="saved-idea-card">
             <div class="saved-idea-header">
-                <h3 class="saved-idea-title">Idea #${savedIdeas.length - savedIdeas.indexOf(idea)}</h3>
+                <h3 class="saved-idea-title">${title}</h3>
                 <p class="saved-idea-date">${new Date(idea.timestamp).toLocaleDateString()}</p>
             </div>
             <div class="saved-idea-content">${idea.content}</div>
+            ${idea.promptConnection ? `
+                <div class="saved-idea-prompt-label">Rationale:</div>
+                <div class="saved-idea-prompt">${idea.promptConnection}</div>
+            ` : ''}
             ${idea.prompt ? `
                 <div class="saved-idea-prompt-label">Inspired by:</div>
                 <div class="saved-idea-prompt">${idea.prompt}</div>
             ` : ''}
         </div>
-    `).join('');
+    `;
+    }).join('');
+}
+
+// Export saved ideas to CSV
+function exportIdeasToCSV() {
+    if (savedIdeas.length === 0) {
+        alert('No ideas to export');
+        return;
+    }
+    
+    // Create CSV header
+    const headers = ['Title', 'Rationale', 'Idea'];
+    const rows = savedIdeas.map((idea, index) => {
+        const title = idea.promptTitle || `Idea #${savedIdeas.length - index}`;
+        const rationale = idea.promptConnection || '';
+        const ideaContent = idea.content || '';
+        
+        // Escape CSV values (handle commas, quotes, newlines)
+        const escapeCSV = (value) => {
+            if (!value) return '';
+            const stringValue = String(value);
+            // If contains comma, quote, or newline, wrap in quotes and escape internal quotes
+            if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+                return `"${stringValue.replace(/"/g, '""')}"`;
+            }
+            return stringValue;
+        };
+        
+        return [
+            escapeCSV(title),
+            escapeCSV(rationale),
+            escapeCSV(ideaContent)
+        ].join(',');
+    });
+    
+    // Combine headers and rows
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `mutagen-ideas-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
 
 // Utility Functions
-async function callClaudeAPI(prompt, includeHistory = true) {
+async function callClaudeAPI(prompt, includeHistory = true, maxTokens = 1000) {
     const proxyPath = getProxyPath();
     console.log('Calling Claude API via proxy:', proxyPath);
     
@@ -2087,7 +2570,7 @@ async function callClaudeAPI(prompt, includeHistory = true) {
             body: JSON.stringify({
                 model: 'claude', // Model name is converted by worker to Claude
                 messages: messages,
-                max_tokens: 1000,
+                max_tokens: maxTokens,
                 temperature: 0.7
             })
         });
