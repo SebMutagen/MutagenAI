@@ -20,6 +20,15 @@ let chatHistory = [];
 let persona = null; // Store the created persona
 let reframedProblem = null; // Store the reframed problem statement
 
+// Ideation phase tracking
+let ideationPromptCounts = {
+    mutagen: 0,
+    semiTargeted: 0,
+    targeted: 0
+};
+let userIdeas = []; // Track user ideas for creativity evaluation
+let currentPromptType = null; // Track current prompt type: 'mutagen', 'semiTargeted', or 'targeted'
+
 // Phase tracking for objective management
 const PHASE_ORDER = ['contextualizing', 'persona', 'problemRefinement', 'promptGeneration', 'evaluation'];
 let currentPhaseIndex = 0; // Track current phase index for objective management
@@ -717,13 +726,13 @@ async function updateProblemStatement(statement) {
                 const summary = await callSummaryAPI(dataToSummarize, 'problem');
                 // If summary is very short, show more of the original content
                 if (summary && summary.length > 50) {
-                    problemStatementContent.innerHTML = `<p>${summary}</p>`;
+                    problemStatementContent.innerHTML = parseMarkdown(summary);
                 } else {
                     // Show a more comprehensive view (first 300 chars + summary)
                     const preview = dataToSummarize.length > 300 ? 
                         dataToSummarize.substring(0, 300) + '...' : 
                         dataToSummarize;
-                    problemStatementContent.innerHTML = `<p>${preview}</p>`;
+                    problemStatementContent.innerHTML = parseMarkdown(preview);
                 }
             } catch (error) {
                 console.error('Error summarizing problem statement:', error);
@@ -731,7 +740,7 @@ async function updateProblemStatement(statement) {
                 const displayText = window.currentProblemData.length > 500 ? 
                     window.currentProblemData.substring(0, 500) + '...' : 
                     window.currentProblemData;
-                problemStatementContent.innerHTML = `<p>${displayText}</p>`;
+                problemStatementContent.innerHTML = parseMarkdown(displayText);
             }
             // Update the global problem statement and card state
             problemStatement = statement;
@@ -1013,6 +1022,9 @@ async function processUserMessage(message) {
                     }
                     
                     saveIdea(message, promptText, promptTitle, promptConnection);
+                    
+                    // Track user idea for creativity evaluation
+                    trackUserIdea(message);
                 }
                 
                 // Process the message (this may generate a new prompt)
@@ -1203,14 +1215,20 @@ Number of questions asked so far: ${askedQuestions.size}
 
 Your role is to understand more about the user's problem and the people affected by it through open-ended questions. You need to gather comprehensive information about:
 
+**CRITICAL: UNDERSTAND WHO THE PERSONA IS ABOUT**
+- The persona you'll create later should describe the PERSON EXPERIENCING THE PROBLEM, not the person describing it
+- For example: If the user has a business, ask about their customers/clients who experience the problem
+- If the user is solving a problem for others, ask about those people who experience the problem
+- The persona is about the end user/customer, not the problem solver
+
 **UNDERSTANDING AREAS TO COVER (INCLUDE PERSONA QUESTIONS HERE):**
 - **The Problem**: What is the problem? Why is it a problem? What makes it important?
-- **Demographics**: Who is affected? (age, occupation, background, lifestyle, etc.) - ASK THESE QUESTIONS NOW
-- **Pain Points & Frustrations**: What specific problems do they face? What's frustrating about the current situation?
-- **Goals & Motivations**: What are they trying to achieve? What motivates them?
-- **Behaviors & Habits**: How do they currently handle this? What are their daily routines and behaviors? - ASK THESE QUESTIONS NOW
-- **Constraints & Limitations**: What limits their options? (budget, time, resources, etc.)
-- **Emotional State & Mindset**: How do they feel about this problem? What's their mindset?
+- **Who Experiences It**: Who is the person experiencing this problem? (This will be the persona - ask about their demographics, age, occupation, background, lifestyle, etc.) - ASK THESE QUESTIONS NOW
+- **Pain Points & Frustrations**: What specific problems do the people experiencing this problem face? What's frustrating about the current situation?
+- **Goals & Motivations**: What are the people experiencing this problem trying to achieve? What motivates them?
+- **Behaviors & Habits**: How do the people experiencing this problem currently handle it? What are their daily routines and behaviors? - ASK THESE QUESTIONS NOW
+- **Constraints & Limitations**: What limits the options of the people experiencing this problem? (budget, time, resources, etc.)
+- **Emotional State & Mindset**: How do the people experiencing this problem feel about it? What's their mindset?
 
 **CURRENT UNDERSTANDING STATUS:**
 - Demographics: ${understandingAreas.demographics ? '✓ Covered' : '❌ Need more info'}
@@ -1400,18 +1418,21 @@ ${userContext}
 
 **YOUR TASK: CREATE PERSONA, LIST ASSUMPTIONS, GET CONFIRMATION**
 - Based on the information gathered in the contextualizing phase, create a detailed persona
+- **CRITICAL: The persona should describe the PERSON EXPERIENCING THE PROBLEM, not the person describing the problem**
+- **For example: If the user has a landscaping business, the persona should describe their landscaping clients (the people who need landscaping services), NOT the business owner**
+- **The persona is about the end user/customer who experiences the problem, not the person who is solving it**
 - List out the assumptions you've made (what you extrapolated vs. what the user provided)
 - Ask the user to confirm if the assumptions are correct
 - **DO NOT ask exploratory questions** - only ask if the assumptions are correct or if they want to make changes
 - The persona should be relevant to solving this problem: "${problemStatement || 'Not yet defined'}"
 
 **PERSONA STRUCTURE:**
-- Demographics (age, occupation, lifestyle if mentioned)
-- Pain points and frustrations
-- Goals and motivations
-- Behaviors and habits
-- Constraints and limitations
-- Emotional state and mindset
+- Demographics (age, occupation, lifestyle if mentioned) - of the person experiencing the problem
+- Pain points and frustrations - of the person experiencing the problem
+- Goals and motivations - of the person experiencing the problem
+- Behaviors and habits - of the person experiencing the problem
+- Constraints and limitations - of the person experiencing the problem
+- Emotional state and mindset - of the person experiencing the problem
 
 **CRITICAL GUIDELINES:**
 - Keep messages SHORT - 2-3 sentences maximum. Don't elaborate unnecessarily.
@@ -1653,15 +1674,56 @@ Your task is to provide ONE creative prompt that helps the user brainstorm solut
 2. **Connection** (one sentence connecting to the persona/problem, italicized using <em> tags)
 3. **Creative Prompt** (the actual brainstorming question, bold using <strong> tags)
 
-**PROMPT STYLE - REFERENCE Mutagen Prompt.txt:**
-- Look at the Mutagen Prompt.txt file for examples of broad, open-ended prompts
-- Mutagen prompts are intentionally broad and give people freedom to explore
-- Examples from Mutagen: "Change how often users use it", "Take inspiration from an existing product or service", "Take inspiration from a game"
-- Your prompts should be similarly broad and open-ended - don't constrain thinking
-- DO NOT suggest specific answers, examples, or solutions
-- DO NOT provide examples of what the answer might look like
-- Let people think for themselves - your job is to guide their thinking, not provide answers
-- The prompt should open up possibilities, not narrow them down
+**IDEATION PHASE INSTRUCTIONS - THREE TYPES OF PROMPTS:**
+
+You must use THREE types of prompts, from most divergent to least divergent:
+
+1. **MUTAGEN PROMPTS** (Most Divergent - PRIORITIZE THESE):
+   - **CRITICAL: These prompts can be found in Mutagen Prompt.txt - you should take them DIRECTLY from this file**
+   - The Mutagen Prompt.txt file contains a list of prompts with titles and prompt text
+   - Use the prompts VERBATIM from Mutagen Prompt.txt - do not modify them, just use them as-is
+   - Broad and applicable to most design problems
+   - Draw on people's universal experiences
+   - Two types: ones that draw from user's tangible experiences/knowledge, and ones that change ideas on a conceptual level
+   - Some prompts might seem unusual (e.g., "what if your app was no longer digital") - these are OK! Position as hypothetical scenarios that get users thinking outside the box
+   - Examples from the file: "Take inspiration from a museum, art gallery, or something similar", "Change how often users use it", "Take inspiration from your daily routine"
+   - **IMPORTANT: Reference the Mutagen Prompt.txt file directly and use the prompts exactly as written there**
+
+2. **SEMI-TARGETED PROMPTS** (Medium Divergence):
+   - Like Mutagen prompts: avoid touching the industry/area/context directly, look to external inspiration
+   - Like Targeted prompts: wording is more specific and narrow
+   - Example: "What if you took inspiration from how people make decisions on purchasing furniture?"
+
+3. **TARGETED PROMPTS** (Least Divergent - AVOID UNLESS USER IS STRUGGLING):
+   - Directly based on the industry or context of the problem
+   - Too narrow, leave little room for creativity
+   - Only use if user is having serious trouble with other prompt types
+   - Example: "What if you used other media to convey the idea of stress-free rather than just writing it out?"
+
+**CRITICAL: PROMPTS MUST BE BROAD AND OPEN-ENDED**
+- **DO NOT make prompts so narrow that they force a specific idea or solution**
+- **DO NOT suggest specific answers, features, or implementations**
+- **DO NOT constrain thinking with overly specific directions**
+- Prompts should open up possibilities, not narrow them down
+- Users need enough space to think of ideas on their own
+- The goal is to guide thinking, not prescribe solutions
+- If a prompt feels like it's leading to one specific answer, it's too narrow
+- Broad prompts allow users to explore and discover their own creative solutions
+- Think of prompts as "directions to explore" not "answers to implement"
+
+**PROMPT CYCLING STRATEGY:**
+- Start with 3 Mutagen prompts, then 3 Semi-targeted prompts, then 3 Targeted prompts
+- After 9 prompts total (3 of each), analyze which type generates the most creative ideas
+- Then give more of the best-performing type while sprinkling in other types occasionally
+- Remember: prioritize divergence - Mutagen prompts should be your default
+
+**CURRENT PROMPT COUNTS:**
+- Mutagen prompts given: ${ideationPromptCounts.mutagen}
+- Semi-targeted prompts given: ${ideationPromptCounts.semiTargeted}
+- Targeted prompts given: ${ideationPromptCounts.targeted}
+
+**WHAT TYPE TO USE NOW:**
+${getPromptTypeInstruction()}
 
 **EXAMPLE FORMAT:**
 <strong>Day In Day Out</strong><br><br>
@@ -1670,7 +1732,7 @@ Your task is to provide ONE creative prompt that helps the user brainstorm solut
 
 IMPORTANT GUIDELINES:
 - Provide ONLY ONE prompt per response
-- Make the prompt specific to their problem and persona
+- Make the prompt relevant to their problem and persona, but keep it BROAD
 - Draw from different industries and approaches
 - Keep the entire response SHORT - just the title, connection, and prompt
 - The user can move to the next phase at any time - support their decision if they ask to move on
@@ -1680,6 +1742,9 @@ IMPORTANT GUIDELINES:
 - **CRITICAL: DO NOT suggest answers, examples, or specific solutions - let people think for themselves**
 - **CRITICAL: Your prompts should open up possibilities, not narrow them down or constrain thinking**
 - **CRITICAL: Think outside the box - use prompts that encourage creative exploration**
+- **CRITICAL: Prompts should NOT be so narrow as to basically force an idea - users need space to think independently**
+- **CRITICAL: If your prompt feels like it's leading to one specific answer, it's too narrow - make it broader**
+- **CRITICAL: Give users room to explore - don't prescribe solutions, guide exploration**
 - IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 - **CRITICAL: When user shares an idea, IGNORE their direction and generate a COMPLETELY DIFFERENT prompt - do NOT build on, develop, or drill down on their idea**
 - **CRITICAL: Always generate a NEW, DIFFERENT prompt - pull them in wildly different directions, not deepen existing ones**
@@ -1696,7 +1761,15 @@ FORMATTING REQUIREMENTS:
 - NEVER use markdown syntax - always use HTML tags like <strong>bold</strong> and <em>italic</em>
 
 Keep your response SHORT - just the title, connection sentence, and prompt.
+
+**IMPORTANT:** At the end of your response, indicate which type of prompt you used by including one of these tags:
+- [MUTAGEN] if you used a Mutagen prompt
+- [SEMI-TARGETED] if you used a Semi-targeted prompt  
+- [TARGETED] if you used a Targeted prompt
     `);
+    
+    // Determine and set prompt type based on response (before adding to chat)
+    determinePromptType(response);
     
     addMessageToChat('ai', response, true);
     
@@ -1719,12 +1792,17 @@ Keep your response SHORT - just the title, connection sentence, and prompt.
                 title: extractedPrompt.title || '',
                 connection: extractedPrompt.connection || '',
                 text: extractedPrompt.text || response,
-                source: 'AI Generated'
+                source: 'AI Generated',
+                type: currentPromptType // Track prompt type
             };
             generatedPrompts.push(newPrompt);
             console.log('Stored prompt for idea saving:', newPrompt);
         }
     }
+    
+    // Log prompt type
+    console.log(`[IDEATION] Prompt Type: ${currentPromptType || 'unknown'}`);
+    console.log(`[IDEATION] Prompt Counts - Mutagen: ${ideationPromptCounts.mutagen}, Semi-targeted: ${ideationPromptCounts.semiTargeted}, Targeted: ${ideationPromptCounts.targeted}`);
     
     // Prompts are now shown in the chat, not in the sidebar
     // The sidebar now shows saved ideas instead
@@ -1827,6 +1905,125 @@ function extractAndDisplayPrompts(aiResponse) {
     }
 }
 
+// Determine prompt type from AI response
+function determinePromptType(response) {
+    const responseLower = response.toLowerCase();
+    if (responseLower.includes('[mutagen]')) {
+        currentPromptType = 'mutagen';
+        ideationPromptCounts.mutagen++;
+    } else if (responseLower.includes('[semi-targeted]') || responseLower.includes('[semi targeted]')) {
+        currentPromptType = 'semiTargeted';
+        ideationPromptCounts.semiTargeted++;
+    } else if (responseLower.includes('[targeted]')) {
+        currentPromptType = 'targeted';
+        ideationPromptCounts.targeted++;
+    } else {
+        // Try to infer from content if tag is missing
+        // Check if it matches Mutagen prompt patterns
+        const mutagenPatterns = ['take inspiration from', 'change how', 'make it so', 'utilize', 'incorporate'];
+        const isMutagen = mutagenPatterns.some(pattern => responseLower.includes(pattern));
+        if (isMutagen && ideationPromptCounts.mutagen < 3) {
+            currentPromptType = 'mutagen';
+            ideationPromptCounts.mutagen++;
+        } else if (ideationPromptCounts.semiTargeted < 3 && ideationPromptCounts.mutagen >= 3) {
+            currentPromptType = 'semiTargeted';
+            ideationPromptCounts.semiTargeted++;
+        } else {
+            currentPromptType = 'targeted';
+            ideationPromptCounts.targeted++;
+        }
+    }
+}
+
+// Get instruction for which prompt type to use
+function getPromptTypeInstruction() {
+    const totalPrompts = ideationPromptCounts.mutagen + ideationPromptCounts.semiTargeted + ideationPromptCounts.targeted;
+    
+    // First cycle: 3 Mutagen, then 3 Semi-targeted, then 3 Targeted
+    if (ideationPromptCounts.mutagen < 3) {
+        return `You should use a MUTAGEN PROMPT now. You've given ${ideationPromptCounts.mutagen} Mutagen prompts so far. Use a prompt from Mutagen Prompt.txt verbatim.`;
+    } else if (ideationPromptCounts.semiTargeted < 3) {
+        return `You should use a SEMI-TARGETED PROMPT now. You've given ${ideationPromptCounts.semiTargeted} Semi-targeted prompts so far.`;
+    } else if (ideationPromptCounts.targeted < 3) {
+        return `You should use a TARGETED PROMPT now. You've given ${ideationPromptCounts.targeted} Targeted prompts so far. Only use this if user is struggling.`;
+    } else {
+        // After 9 prompts, analyze and recommend
+        return `You've completed the first cycle (3 of each type). Analyze which type generated the most creative ideas, then give more of that type while sprinkling in others.`;
+    }
+}
+
+// Track user idea and evaluate creativity
+function trackUserIdea(ideaText) {
+    if (!ideaText || !ideaText.trim()) return;
+    
+    const idea = {
+        text: ideaText.trim(),
+        timestamp: Date.now(),
+        promptType: currentPromptType
+    };
+    
+    // Evaluate creativity
+    const creativity = evaluateCreativity(ideaText, userIdeas);
+    
+    userIdeas.push(idea);
+    
+    // Log creativity evaluation
+    console.log(`[IDEATION] User Idea: "${ideaText.substring(0, 100)}${ideaText.length > 100 ? '...' : ''}"`);
+    console.log(`[IDEATION] Creativity Evaluation:`);
+    console.log(`  - Novelty: ${creativity.novelty}/10 (how new is this idea?)`);
+    console.log(`  - Repetitiveness: ${creativity.repetitiveness}/10 (lower is better - has user come up with similar ideas?)`);
+    console.log(`  - Overall Creativity Score: ${creativity.overall}/10`);
+    console.log(`  - Prompt Type: ${currentPromptType || 'unknown'}`);
+}
+
+// Evaluate creativity of an idea
+function evaluateCreativity(ideaText, previousIdeas) {
+    if (!ideaText || !ideaText.trim()) {
+        return { novelty: 0, repetitiveness: 10, overall: 0 };
+    }
+    
+    const ideaLower = ideaText.toLowerCase().trim();
+    const words = ideaLower.split(/\s+/).filter(w => w.length > 3); // Filter out short words
+    
+    // Calculate repetitiveness (how similar to previous ideas)
+    let maxSimilarity = 0;
+    let similarCount = 0;
+    
+    for (const prevIdea of previousIdeas) {
+        const prevLower = prevIdea.text.toLowerCase().trim();
+        const prevWords = prevLower.split(/\s+/).filter(w => w.length > 3);
+        
+        // Calculate word overlap
+        const commonWords = words.filter(w => prevWords.includes(w));
+        const similarity = commonWords.length / Math.max(words.length, prevWords.length, 1);
+        
+        if (similarity > maxSimilarity) {
+            maxSimilarity = similarity;
+        }
+        
+        if (similarity > 0.3) { // 30% word overlap = similar
+            similarCount++;
+        }
+    }
+    
+    // Repetitiveness score: 0 = unique, 10 = very repetitive
+    const repetitiveness = Math.min(10, Math.round(maxSimilarity * 10 + similarCount * 2));
+    
+    // Novelty score: inverse of repetitiveness, but also consider idea length and uniqueness
+    // Longer, more detailed ideas might be more novel
+    const wordCount = words.length;
+    const novelty = Math.min(10, Math.round((1 - maxSimilarity) * 10 + Math.min(wordCount / 20, 2)));
+    
+    // Overall creativity: balance of novelty and low repetitiveness
+    const overall = Math.round((novelty + (10 - repetitiveness)) / 2);
+    
+    return {
+        novelty: Math.max(0, Math.min(10, novelty)),
+        repetitiveness: Math.max(0, Math.min(10, repetitiveness)),
+        overall: Math.max(0, Math.min(10, overall))
+    };
+}
+
 // Extract prompt details from an AI message (helper function)
 function extractPromptFromMessage(messageContent) {
     if (!messageContent) return { title: null, connection: null, text: null };
@@ -1903,14 +2100,14 @@ function displaySavedIdeasInSidebar() {
                 <h4 class="saved-idea-title">${title}</h4>
                 <span class="saved-idea-date">${new Date(idea.timestamp).toLocaleDateString()}</span>
             </div>
-            <div class="saved-idea-content">${idea.content}</div>
+            <div class="saved-idea-content">${parseMarkdown(idea.content || '')}</div>
             ${idea.promptConnection ? `
                 <div class="saved-idea-prompt-label">Rationale:</div>
-                <div class="saved-idea-prompt">${idea.promptConnection}</div>
+                <div class="saved-idea-prompt">${parseMarkdown(idea.promptConnection)}</div>
             ` : ''}
             ${idea.prompt ? `
                 <div class="saved-idea-prompt-label">Inspired by:</div>
-                <div class="saved-idea-prompt">${idea.prompt}</div>
+                <div class="saved-idea-prompt">${parseMarkdown(idea.prompt)}</div>
             ` : ''}
           `;
         promptsList.appendChild(ideaCard);
@@ -2523,14 +2720,14 @@ function loadSavedIdeas() {
                 <h3 class="saved-idea-title">${title}</h3>
                 <p class="saved-idea-date">${new Date(idea.timestamp).toLocaleDateString()}</p>
             </div>
-            <div class="saved-idea-content">${idea.content}</div>
+            <div class="saved-idea-content">${parseMarkdown(idea.content || '')}</div>
             ${idea.promptConnection ? `
                 <div class="saved-idea-prompt-label">Rationale:</div>
-                <div class="saved-idea-prompt">${idea.promptConnection}</div>
+                <div class="saved-idea-prompt">${parseMarkdown(idea.promptConnection)}</div>
             ` : ''}
             ${idea.prompt ? `
                 <div class="saved-idea-prompt-label">Inspired by:</div>
-                <div class="saved-idea-prompt">${idea.prompt}</div>
+                <div class="saved-idea-prompt">${parseMarkdown(idea.prompt)}</div>
             ` : ''}
         </div>
     `;
