@@ -11,6 +11,81 @@ function getProxyPath() {
     return '/api/chat';
 }
 
+// Mutagen Prompts - Complete list from Mutagen Prompt.txt
+const MUTAGEN_PROMPTS = [
+    { title: 'Irresistible', prompt: 'Change how often users use it' },
+    { title: 'Work Hard', prompt: 'Change how much effort the user needs to use' },
+    { title: 'Day In Day Out', prompt: 'Take inspiration from your daily routine' },
+    { title: 'Copycat', prompt: 'Take inspiration from an existing product or service' },
+    { title: 'Minimally Viable', prompt: 'Make it so that you could build a prototype right now' },
+    { title: 'Brainwash', prompt: 'Take inspiration from an advertisement' },
+    { title: 'The Upside Down', prompt: 'Change the sequence of steps the user goes through' },
+    { title: 'Deja Vu', prompt: 'Take inspiration from an experience you had in the last two weeks' },
+    { title: 'Ready Player One', prompt: 'Take inspiration from a game' },
+    { title: 'Taxpayer Money', prompt: 'Take inspiration from a public service' },
+    { title: 'Pep Talk', prompt: 'Utilize a coach or facilitator' },
+    { title: 'Curator', prompt: 'Take inspiration from a museum, art gallery, etc.' },
+    { title: 'Price Tag', prompt: 'Change how much this costs' },
+    { title: 'Polymath', prompt: 'Take inspiration from something unrelated to your job or major' },
+    { title: 'Primary Hustle', prompt: 'Take inspiration from your job' },
+    { title: 'Bird\'s Eye', prompt: 'Take inspiration from something in your immediate/nearby area' },
+    { title: 'Shopaholic', prompt: 'Take inspiration from a recently purchased product or service' },
+    { title: 'Social Enterprise', prompt: 'Solve a social issue' },
+    { title: 'Daydreamer', prompt: 'Take inspiration from a fantasy or dream that you have had' },
+    { title: 'DLC', prompt: 'Users can create plugins, mods, add-ons, etc.' },
+    { title: 'Play Hard', prompt: 'Take inspiration from one of your hobbies' },
+    { title: 'Suit Up', prompt: 'Utilize a wearable device' },
+    { title: 'Beginner\'s Luck', prompt: 'Incorporate an element of randomization' },
+    { title: 'Brower History', prompt: 'Take inspiration from a website or app that you recently opened' },
+    { title: 'Nostalgia', prompt: 'Take inspiration from a childhood toy or memory' },
+    { title: 'Tic-Tac-Toe', prompt: 'Make it so even a 5-year-old could use it' },
+    { title: 'Wirecutter', prompt: 'Does not require digital devices' },
+    { title: 'Season\'s Greetings', prompt: 'Take inspiration from a seasonal activity' },
+    { title: 'Sixth Sense', prompt: 'Engage another sense' },
+    { title: 'Microscope', prompt: 'Address a subset of users very well' },
+    { title: 'Subscription Fee', prompt: 'Make it require a membership or subscription' },
+    { title: 'Influencer', prompt: 'Utilize user-generated content' },
+    { title: 'Terminator', prompt: 'Automate something not automated or vice versa' },
+    { title: 'Happy Holidays', prompt: 'Take inspiration from a holiday, festivity, tradition, etc.' },
+    { title: 'Pocket Computer', prompt: 'Make it only require a smartphone to use' },
+    { title: 'The Social Network', prompt: 'Take inspiration from a social media platform' },
+    { title: 'Mother Nature', prompt: 'Make it so users have to use it outside' },
+    { title: 'Fountain of Youth', prompt: 'Make it so even a 60-year-old could use it' },
+    { title: 'Viral', prompt: 'Experience changes based on how many people use it' },
+    { title: 'No Time to Expla-', prompt: 'Only takes five minutes or less to use' },
+    { title: 'Time Traveler', prompt: 'Make it more high or low tech' },
+    { title: 'Chef\'s Kiss', prompt: 'Take inspiration from the hospitality industry' },
+    { title: 'Warp Reality', prompt: 'Incorporate VR or AR' },
+    { title: 'Brick and Mortar', prompt: 'Take inspiration from a retail store' },
+    { title: 'Internet of Things', prompt: 'Utilize two or more devices that use data from each other' },
+    { title: 'Mr. Worldwide', prompt: 'Take inspiration from another culture' },
+    { title: 'This Tall to Ride', prompt: 'Take inspiration from an amusement park, carnival, arcade, etc.' },
+    { title: 'Reminisce', prompt: 'Take inspiration from an experience you had over five years ago' },
+    { title: 'Into the Multiverse', prompt: 'Take inspiration from a game, movie, book, or other fictional work' },
+    { title: 'Swiss Army Knife', prompt: 'Add a feature that makes the main solution easier to use' },
+    { title: 'Party', prompt: 'Change the number of people the user interacts with' },
+    { title: 'Plane of Existence', prompt: 'Anything digital becomes analog and vice versa' }
+];
+
+// Example Prompts for reference
+const EXAMPLE_PROMPTS = {
+    targeted: [
+        'What if creators had to work within extreme constraints to prove that creative output doesn\'t require unlimited resources or time?',
+        'What if the event itself wasn\'t about making things, but about creating a ritual or ceremony that designers participate in together?',
+        'What if the event required participants to publicly commit to their idea before receiving any feedback or validation?'
+    ],
+    semiTargeted: [
+        'What inspiration could you take from the limited time scope of a hackathon?',
+        'What if you took inspiration from Hyrox, where the community and act of working out together is just as important as the fitness?',
+        'What if you took inspiration from New Years Resolutions, where people commit to something throughout the year?'
+    ],
+    mutagen: [
+        'Make it take 5 minutes or less.',
+        'Take inspiration from a festival or tradition',
+        'Change the number of people the user interacts with'
+    ]
+};
+
 // Global State
 let currentPhase = 'contextualizing'; // contextualizing, persona, problemRefinement, promptGeneration, evaluation
 let problemStatement = '';
@@ -1590,6 +1665,14 @@ async function processPromptGenerationMessage(message) {
         return;
     }
     
+    // STEP 1: Determine the prompt type FIRST (before generating)
+    const requiredPromptType = determineRequiredPromptType();
+    currentPromptType = requiredPromptType; // Set the type before generating
+    
+    console.log(`[PROMPT GENERATION] Determined prompt type: ${requiredPromptType}`);
+    console.log(`[PROMPT GENERATION] Current counts - Mutagen: ${ideationPromptCounts.mutagen}, Semi-targeted: ${ideationPromptCounts.semiTargeted}, Targeted: ${ideationPromptCounts.targeted}`);
+    
+    // STEP 2: Generate prompt based on the determined type
     const response = await callClaudeAPI(`
 You are a product manager and design consultant in the CREATIVE PROMPT GENERATION PHASE.
 
@@ -1670,35 +1753,53 @@ Your task is to provide ONE creative prompt that helps the user brainstorm solut
 
 **CRITICAL PROMPT STRUCTURE - YOU MUST FOLLOW THIS EXACT FORMAT:**
 
-1. **Short Title** (3-5 words, bold using <strong> tags)
+1. **Short Title** (3-5 words, bold using <strong> tags) - Use the title from the Mutagen prompt list if using a Mutagen prompt
 2. **Connection** (one sentence connecting to the persona/problem, italicized using <em> tags)
-3. **Creative Prompt** (the actual brainstorming question, bold using <strong> tags)
+3. **Creative Prompt** (the actual brainstorming prompt, bold using <strong> tags)
+   - **CRITICAL: The prompt text MUST be EXACTLY 1 SENTENCE - no longer**
+   - **CRITICAL: If using a Mutagen prompt, use it VERBATIM from the list above - do NOT modify it**
+   - **CRITICAL: For Semi-targeted and Targeted prompts, keep them to 1 sentence maximum**
 
 **IDEATION PHASE INSTRUCTIONS - THREE TYPES OF PROMPTS:**
 
+The system has determined that you MUST use a **${requiredPromptType.toUpperCase()}** prompt for this response.
+
 You must use THREE types of prompts, from most divergent to least divergent:
 
-1. **MUTAGEN PROMPTS** (Most Divergent - PRIORITIZE THESE):
-   - **CRITICAL: These prompts can be found in Mutagen Prompt.txt - you should take them DIRECTLY from this file**
-   - The Mutagen Prompt.txt file contains a list of prompts with titles and prompt text
-   - Use the prompts VERBATIM from Mutagen Prompt.txt - do not modify them, just use them as-is
+1. **MUTAGEN PROMPTS** (Most Divergent):
+   - **CRITICAL: You MUST use prompts VERBATIM from the list below - do NOT modify, rephrase, or create your own versions**
+   - **CRITICAL: Prompts must be EXACTLY 1 SENTENCE - no longer**
+   - **CRITICAL: Select one prompt from the list below and use it EXACTLY as written**
    - Broad and applicable to most design problems
    - Draw on people's universal experiences
    - Two types: ones that draw from user's tangible experiences/knowledge, and ones that change ideas on a conceptual level
-   - Some prompts might seem unusual (e.g., "what if your app was no longer digital") - these are OK! Position as hypothetical scenarios that get users thinking outside the box
-   - Examples from the file: "Take inspiration from a museum, art gallery, or something similar", "Change how often users use it", "Take inspiration from your daily routine"
-   - **IMPORTANT: Reference the Mutagen Prompt.txt file directly and use the prompts exactly as written there**
+   
+   **COMPLETE LIST OF MUTAGEN PROMPTS (USE THESE VERBATIM):**
+${MUTAGEN_PROMPTS.map((p, i) => `   ${i + 1}. Title: "${p.title}" | Prompt: "${p.prompt}"`).join('\n')}
+   
+   **CRITICAL INSTRUCTIONS FOR MUTAGEN PROMPTS:**
+   - Select one prompt from the list above
+   - Use the EXACT title and prompt text - do NOT modify, rephrase, or create variations
+   - Try to use different prompts each time - avoid repeating prompts you've already used
+   - The prompt text is already exactly 1 sentence - use it as-is
+   
+   **EXAMPLES OF MUTAGEN PROMPTS (for reference):**
+${EXAMPLE_PROMPTS.mutagen.map((ex, i) => `   - ${ex}`).join('\n')}
 
 2. **SEMI-TARGETED PROMPTS** (Medium Divergence):
+   - **CRITICAL: Must be EXACTLY 1 SENTENCE - no longer**
    - Like Mutagen prompts: avoid touching the industry/area/context directly, look to external inspiration
    - Like Targeted prompts: wording is more specific and narrow
-   - Example: "What if you took inspiration from how people make decisions on purchasing furniture?"
+   - **EXAMPLES:**
+${EXAMPLE_PROMPTS.semiTargeted.map((ex, i) => `   - ${ex}`).join('\n')}
 
 3. **TARGETED PROMPTS** (Least Divergent - AVOID UNLESS USER IS STRUGGLING):
+   - **CRITICAL: Must be EXACTLY 1 SENTENCE - no longer**
    - Directly based on the industry or context of the problem
    - Too narrow, leave little room for creativity
    - Only use if user is having serious trouble with other prompt types
-   - Example: "What if you used other media to convey the idea of stress-free rather than just writing it out?"
+   - **EXAMPLES:**
+${EXAMPLE_PROMPTS.targeted.map((ex, i) => `   - ${ex}`).join('\n')}
 
 **CRITICAL: PROMPTS MUST BE BROAD AND OPEN-ENDED**
 - **DO NOT make prompts so narrow that they force a specific idea or solution**
@@ -1722,8 +1823,37 @@ You must use THREE types of prompts, from most divergent to least divergent:
 - Semi-targeted prompts given: ${ideationPromptCounts.semiTargeted}
 - Targeted prompts given: ${ideationPromptCounts.targeted}
 
-**WHAT TYPE TO USE NOW:**
-${getPromptTypeInstruction()}
+**CRITICAL: PROMPT TYPE DECISION - YOU MUST USE THIS TYPE:**
+**REQUIRED PROMPT TYPE: ${requiredPromptType.toUpperCase()}**
+
+${getPromptTypeInstruction(requiredPromptType)}
+
+**YOU MUST GENERATE A ${requiredPromptType.toUpperCase()} PROMPT - DO NOT USE ANY OTHER TYPE.**
+
+${requiredPromptType === 'mutagen' ? `
+**CRITICAL FOR MUTAGEN PROMPTS:**
+- You MUST select one prompt from the Mutagen prompts list provided above
+- Use the EXACT title and prompt text - do NOT modify, rephrase, or create your own version
+- The prompt text is already exactly 1 sentence - use it as-is
+- Do NOT create a new Mutagen prompt - you must use one from the list
+` : ''}
+
+${requiredPromptType === 'semiTargeted' ? `
+**CRITICAL FOR SEMI-TARGETED PROMPTS:**
+- Create a prompt that draws inspiration from external sources (like Mutagen prompts)
+- But make the wording more specific and narrow (like Targeted prompts)
+- Must be exactly 1 sentence maximum
+- Follow the examples provided above
+- Do NOT directly reference the industry/context of the problem
+` : ''}
+
+${requiredPromptType === 'targeted' ? `
+**CRITICAL FOR TARGETED PROMPTS:**
+- Create a prompt directly based on the industry or context of the problem
+- Must be exactly 1 sentence maximum
+- Follow the examples provided above
+- Only use this type as it's the least divergent
+` : ''}
 
 **EXAMPLE FORMAT:**
 <strong>Day In Day Out</strong><br><br>
@@ -1732,19 +1862,23 @@ ${getPromptTypeInstruction()}
 
 IMPORTANT GUIDELINES:
 - Provide ONLY ONE prompt per response
+- **CRITICAL: The prompt text MUST be EXACTLY 1 SENTENCE - no longer, no exceptions**
+- **CRITICAL: If using a Mutagen prompt, you MUST select one from the list above and use it VERBATIM - do NOT modify, rephrase, or create your own version**
+- **CRITICAL: For Mutagen prompts, use the exact title and prompt text from the list provided**
 - Make the prompt relevant to their problem and persona, but keep it BROAD
 - Draw from different industries and approaches
 - Keep the entire response SHORT - just the title, connection, and prompt
 - The user can move to the next phase at any time - support their decision if they ask to move on
 - The prompt generation phase is ongoing - users can generate ideas and you can provide more prompts as needed
 - If the user asks to move on, do NOT refuse or say it's too early
-- **CRITICAL: Reference Mutagen Prompt.txt for style - use broad, open-ended prompts that give freedom to explore**
+- **CRITICAL: Mutagen prompts are short, simple, and direct - follow this style for all prompts**
 - **CRITICAL: DO NOT suggest answers, examples, or specific solutions - let people think for themselves**
 - **CRITICAL: Your prompts should open up possibilities, not narrow them down or constrain thinking**
 - **CRITICAL: Think outside the box - use prompts that encourage creative exploration**
 - **CRITICAL: Prompts should NOT be so narrow as to basically force an idea - users need space to think independently**
 - **CRITICAL: If your prompt feels like it's leading to one specific answer, it's too narrow - make it broader**
 - **CRITICAL: Give users room to explore - don't prescribe solutions, guide exploration**
+- **CRITICAL: Lengthy prompts are NOT helpful - keep it to 1 sentence maximum**
 - IMPORTANT: Include all questions and suggestions in your SINGLE response - do not send multiple messages
 - **CRITICAL: When user shares an idea, IGNORE their direction and generate a COMPLETELY DIFFERENT prompt - do NOT build on, develop, or drill down on their idea**
 - **CRITICAL: Always generate a NEW, DIFFERENT prompt - pull them in wildly different directions, not deepen existing ones**
@@ -1762,14 +1896,14 @@ FORMATTING REQUIREMENTS:
 
 Keep your response SHORT - just the title, connection sentence, and prompt.
 
-**IMPORTANT:** At the end of your response, indicate which type of prompt you used by including one of these tags:
-- [MUTAGEN] if you used a Mutagen prompt
-- [SEMI-TARGETED] if you used a Semi-targeted prompt  
-- [TARGETED] if you used a Targeted prompt
+**IMPORTANT:** At the end of your response, include one of these tags to confirm you used the required type:
+${requiredPromptType === 'mutagen' ? '- [MUTAGEN]' : requiredPromptType === 'semiTargeted' ? '- [SEMI-TARGETED]' : '- [TARGETED]'}
+
+This is for verification only - the type has already been determined and you MUST use ${requiredPromptType.toUpperCase()}.
     `);
     
-    // Determine and set prompt type based on response (before adding to chat)
-    determinePromptType(response);
+    // Increment the counter for the prompt type we determined
+    incrementPromptTypeCounter();
     
     addMessageToChat('ai', response, true);
     
@@ -1905,50 +2039,82 @@ function extractAndDisplayPrompts(aiResponse) {
     }
 }
 
-// Determine prompt type from AI response
-function determinePromptType(response) {
-    const responseLower = response.toLowerCase();
-    if (responseLower.includes('[mutagen]')) {
-        currentPromptType = 'mutagen';
+// Increment prompt type counter (type is already determined before generation)
+function incrementPromptTypeCounter() {
+    if (currentPromptType === 'mutagen') {
         ideationPromptCounts.mutagen++;
-    } else if (responseLower.includes('[semi-targeted]') || responseLower.includes('[semi targeted]')) {
-        currentPromptType = 'semiTargeted';
+        console.log(`[PROMPT TYPE] Incremented Mutagen count to ${ideationPromptCounts.mutagen}`);
+    } else if (currentPromptType === 'semiTargeted') {
         ideationPromptCounts.semiTargeted++;
-    } else if (responseLower.includes('[targeted]')) {
-        currentPromptType = 'targeted';
+        console.log(`[PROMPT TYPE] Incremented Semi-targeted count to ${ideationPromptCounts.semiTargeted}`);
+    } else if (currentPromptType === 'targeted') {
         ideationPromptCounts.targeted++;
+        console.log(`[PROMPT TYPE] Incremented Targeted count to ${ideationPromptCounts.targeted}`);
+    }
+}
+
+// Determine which prompt type to use based on the 3-3-3 rule
+function determineRequiredPromptType() {
+    // First cycle: 3 Mutagen, then 3 Semi-targeted, then 3 Targeted
+    if (ideationPromptCounts.mutagen < 3) {
+        return 'mutagen';
+    } else if (ideationPromptCounts.semiTargeted < 3) {
+        return 'semiTargeted';
+    } else if (ideationPromptCounts.targeted < 3) {
+        return 'targeted';
     } else {
-        // Try to infer from content if tag is missing
-        // Check if it matches Mutagen prompt patterns
-        const mutagenPatterns = ['take inspiration from', 'change how', 'make it so', 'utilize', 'incorporate'];
-        const isMutagen = mutagenPatterns.some(pattern => responseLower.includes(pattern));
-        if (isMutagen && ideationPromptCounts.mutagen < 3) {
-            currentPromptType = 'mutagen';
-            ideationPromptCounts.mutagen++;
-        } else if (ideationPromptCounts.semiTargeted < 3 && ideationPromptCounts.mutagen >= 3) {
-            currentPromptType = 'semiTargeted';
-            ideationPromptCounts.semiTargeted++;
+        // After 9 prompts, analyze which type generated most creative ideas
+        // Calculate average creativity per prompt type
+        const typeCreativity = {
+            mutagen: [],
+            semiTargeted: [],
+            targeted: []
+        };
+        
+        userIdeas.forEach(idea => {
+            if (idea.promptType && idea.creativityScore !== undefined) {
+                if (typeCreativity[idea.promptType]) {
+                    typeCreativity[idea.promptType].push(idea.creativityScore);
+                }
+            }
+        });
+        
+        // Calculate averages
+        const averages = {
+            mutagen: typeCreativity.mutagen.length > 0 
+                ? typeCreativity.mutagen.reduce((a, b) => a + b, 0) / typeCreativity.mutagen.length 
+                : 0,
+            semiTargeted: typeCreativity.semiTargeted.length > 0 
+                ? typeCreativity.semiTargeted.reduce((a, b) => a + b, 0) / typeCreativity.semiTargeted.length 
+                : 0,
+            targeted: typeCreativity.targeted.length > 0 
+                ? typeCreativity.targeted.reduce((a, b) => a + b, 0) / typeCreativity.targeted.length 
+                : 0
+        };
+        
+        // Use the type with highest average creativity, but still sprinkle in others
+        // For now, default to mutagen after first cycle (most divergent)
+        const maxAvg = Math.max(averages.mutagen, averages.semiTargeted, averages.targeted);
+        if (maxAvg === averages.mutagen) {
+            return 'mutagen';
+        } else if (maxAvg === averages.semiTargeted) {
+            return 'semiTargeted';
         } else {
-            currentPromptType = 'targeted';
-            ideationPromptCounts.targeted++;
+            return 'targeted';
         }
     }
 }
 
-// Get instruction for which prompt type to use
-function getPromptTypeInstruction() {
-    const totalPrompts = ideationPromptCounts.mutagen + ideationPromptCounts.semiTargeted + ideationPromptCounts.targeted;
-    
-    // First cycle: 3 Mutagen, then 3 Semi-targeted, then 3 Targeted
-    if (ideationPromptCounts.mutagen < 3) {
-        return `You should use a MUTAGEN PROMPT now. You've given ${ideationPromptCounts.mutagen} Mutagen prompts so far. Use a prompt from Mutagen Prompt.txt verbatim.`;
-    } else if (ideationPromptCounts.semiTargeted < 3) {
-        return `You should use a SEMI-TARGETED PROMPT now. You've given ${ideationPromptCounts.semiTargeted} Semi-targeted prompts so far.`;
-    } else if (ideationPromptCounts.targeted < 3) {
-        return `You should use a TARGETED PROMPT now. You've given ${ideationPromptCounts.targeted} Targeted prompts so far. Only use this if user is struggling.`;
+// Get instruction for which prompt type to use (for display in prompt)
+function getPromptTypeInstruction(requiredType) {
+    if (requiredType === 'mutagen') {
+        return `You MUST use a MUTAGEN PROMPT now. You've given ${ideationPromptCounts.mutagen} Mutagen prompts so far. **CRITICAL: Select one prompt VERBATIM from the Mutagen prompts list provided above - use the exact title and prompt text. Do NOT modify or create your own version. The prompt must be exactly 1 sentence.**`;
+    } else if (requiredType === 'semiTargeted') {
+        return `You MUST use a SEMI-TARGETED PROMPT now. You've given ${ideationPromptCounts.semiTargeted} Semi-targeted prompts so far. **CRITICAL: Keep it to exactly 1 sentence maximum. Follow the examples provided.**`;
+    } else if (requiredType === 'targeted') {
+        return `You MUST use a TARGETED PROMPT now. You've given ${ideationPromptCounts.targeted} Targeted prompts so far. Only use this if user is struggling. **CRITICAL: Keep it to exactly 1 sentence maximum. Follow the examples provided.**`;
     } else {
-        // After 9 prompts, analyze and recommend
-        return `You've completed the first cycle (3 of each type). Analyze which type generated the most creative ideas, then give more of that type while sprinkling in others.`;
+        return `You've completed the first cycle (3 of each type). Analyze which type generated the most creative ideas, then give more of that type while sprinkling in others. **CRITICAL: If using Mutagen prompts, select from the list above and use VERBATIM. All prompts must be exactly 1 sentence.**`;
     }
 }
 
@@ -1956,24 +2122,53 @@ function getPromptTypeInstruction() {
 function trackUserIdea(ideaText) {
     if (!ideaText || !ideaText.trim()) return;
     
-    const idea = {
-        text: ideaText.trim(),
-        timestamp: Date.now(),
-        promptType: currentPromptType
-    };
-    
     // Evaluate creativity
     const creativity = evaluateCreativity(ideaText, userIdeas);
     
+    const idea = {
+        text: ideaText.trim(),
+        timestamp: Date.now(),
+        promptType: currentPromptType,
+        creativityScore: creativity.overall, // Store the numerical creativity score
+        novelty: creativity.novelty,
+        repetitiveness: creativity.repetitiveness
+    };
+    
     userIdeas.push(idea);
     
-    // Log creativity evaluation
-    console.log(`[IDEATION] User Idea: "${ideaText.substring(0, 100)}${ideaText.length > 100 ? '...' : ''}"`);
-    console.log(`[IDEATION] Creativity Evaluation:`);
-    console.log(`  - Novelty: ${creativity.novelty}/10 (how new is this idea?)`);
-    console.log(`  - Repetitiveness: ${creativity.repetitiveness}/10 (lower is better - has user come up with similar ideas?)`);
-    console.log(`  - Overall Creativity Score: ${creativity.overall}/10`);
-    console.log(`  - Prompt Type: ${currentPromptType || 'unknown'}`);
+    // Log creativity evaluation with numerical scores
+    console.log(`[CREATIVITY EVALUATION] User Idea: "${ideaText.substring(0, 100)}${ideaText.length > 100 ? '...' : ''}"`);
+    console.log(`[CREATIVITY EVALUATION] Prompt Type: ${currentPromptType || 'unknown'}`);
+    console.log(`[CREATIVITY EVALUATION] Novelty Score: ${creativity.novelty}/10 (how new is this idea?)`);
+    console.log(`[CREATIVITY EVALUATION] Repetitiveness Score: ${creativity.repetitiveness}/10 (lower is better - has user come up with similar ideas?)`);
+    console.log(`[CREATIVITY EVALUATION] Overall Creativity Score: ${creativity.overall}/10`);
+    
+    // Log summary by prompt type
+    const typeStats = {
+        mutagen: { count: 0, totalScore: 0, avgScore: 0 },
+        semiTargeted: { count: 0, totalScore: 0, avgScore: 0 },
+        targeted: { count: 0, totalScore: 0, avgScore: 0 }
+    };
+    
+    userIdeas.forEach(i => {
+        if (i.promptType && i.creativityScore !== undefined) {
+            if (typeStats[i.promptType]) {
+                typeStats[i.promptType].count++;
+                typeStats[i.promptType].totalScore += i.creativityScore;
+            }
+        }
+    });
+    
+    Object.keys(typeStats).forEach(type => {
+        if (typeStats[type].count > 0) {
+            typeStats[type].avgScore = (typeStats[type].totalScore / typeStats[type].count).toFixed(2);
+        }
+    });
+    
+    console.log(`[CREATIVITY SUMMARY] Average creativity by prompt type:`);
+    console.log(`  - Mutagen: ${typeStats.mutagen.avgScore}/10 (${typeStats.mutagen.count} ideas)`);
+    console.log(`  - Semi-targeted: ${typeStats.semiTargeted.avgScore}/10 (${typeStats.semiTargeted.count} ideas)`);
+    console.log(`  - Targeted: ${typeStats.targeted.avgScore}/10 (${typeStats.targeted.count} ideas)`);
 }
 
 // Evaluate creativity of an idea

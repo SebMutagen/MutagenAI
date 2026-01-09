@@ -1,0 +1,33 @@
+Design an event that enables corporate designers to initiate (not just join) creative projects by reframing creative play as valuable proof of personal growth, rather than "wasted time.
+
+Example Prompts: 
+Example Prompt 1: 
+What if creators had to work within extreme constraints to prove that creative output doesn't require unlimited resources or time? [Targeted Prompt] 
+
+To change it to a Semi-Targeted Prompt: 
+What inspiration could you take from the limited time scope of a hackathon? 
+
+To change it to a Mutagen prompt: 
+Make it take 5 minutes or less. 
+
+Example Prompt 2: 
+What if the event itself wasn't about making things, but about creating a ritual or ceremony that designers participate in together? [Targeted Prompt]
+
+To change it to a Semi-Targeted Prompt: 
+What if you took inspiration from Hyrox, where the community and act of working out together is just as important as the fitness? 
+
+To change it to a Mutagen prompt: 
+Take inspiration from a festival or tradition 
+
+Example Prompt 3: 
+What if the event required participants to publicly commit to their idea before receiving any feedback or validation? [Targeted Prompt]
+
+To change it to a Semi-Targeted Prompt: 
+What if you took inspiration from New Years Resolutions, where people commit to something throughout the year? 
+
+To change it to a Mutagen prompt: 
+Change the number of people the user interacts with
+
+
+
+
